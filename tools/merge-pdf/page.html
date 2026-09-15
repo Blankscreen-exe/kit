@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>merge-pdf</title>
+<style>
+:root {
+  --bg: #f4f6f9; --panel: #ffffff; --panel-2: #f0f3f7; --border: #dce2ea; --text: #1d2733; --muted: #647387;
+  --accent: #1d63ed; --accent-soft: #e7eefe; --thumb-bg: #e9edf2;
+  --green: #1a7f37; --green-soft: #dcf5e3; --red: #cf222e; --red-soft: #fde5e5;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .07);
+  --mono: "Cascadia Code", Consolas, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel-2: #1d242e; --border: #2c3643; --text: #e6edf3; --muted: #8d99a8;
+    --accent: #4c8dff; --accent-soft: #15233d; --thumb-bg: #0f141a;
+    --green: #3fb950; --green-soft: #12301b; --red: #f85149; --red-soft: #3c1618;
+    --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, -apple-system, Roboto, "Noto Sans", sans-serif; }
+button, input, select { font: inherit; color: inherit; }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--border); }
+.bar { max-width: 1400px; margin: 0 auto; padding: 12px 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
+.logo { width: 30px; height: 30px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; font-size: 16px; }
+.count { color: var(--muted); font-weight: 400; font-size: 12.5px; }
+.spacer { flex: 1; }
+.segmented { display: flex; align-items: center; gap: 4px; }
+.seg-label { color: var(--muted); font-size: 12.5px; margin-right: 2px; }
+.btn { border: 1px solid var(--border); background: var(--panel-2); border-radius: 6px; padding: 5px 12px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.big { width: 100%; padding: 9px 12px; font-size: 14px; }
+.layout { max-width: 1400px; margin: 0 auto; padding: 20px; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .side { position: static; } }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 16px; }
+.page { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px; box-shadow: var(--shadow); cursor: grab; outline: none; display: flex; flex-direction: column; gap: 8px; transition: border-color .12s, box-shadow .12s, opacity .12s; }
+.page:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.page:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.page.dragging { opacity: .35; }
+.page.drop-before::before, .page.drop-after::after { content: ""; position: absolute; top: 6px; bottom: 6px; width: 4px; border-radius: 2px; background: var(--accent); }
+.page.drop-before::before { left: -10px; }
+.page.drop-after::after { right: -10px; }
+.thumb { position: relative; aspect-ratio: 1; background: var(--thumb-bg); border-radius: 6px; overflow: hidden; }
+/* The img box is a square inside .thumb; the picture is contained in it, so rotating the box never overflows. */
+.thumb img { position: absolute; inset: 10px; width: calc(100% - 20px); height: calc(100% - 20px); object-fit: contain; transition: transform .2s ease; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .35)); pointer-events: none; }
+.num { position: absolute; top: 16px; left: 16px; min-width: 24px; height: 24px; padding: 0 7px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; display: grid; place-items: center; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
+.icon { border: 1px solid var(--border); background: var(--panel-2); border-radius: 6px; width: 28px; height: 26px; padding: 0; display: grid; place-items: center; cursor: pointer; font-size: 14px; line-height: 1; }
+.icon:hover { border-color: var(--accent); color: var(--accent); }
+.remove { position: absolute; top: 15px; right: 15px; width: 26px; height: 26px; border-radius: 999px; background: var(--panel); opacity: 0; transition: opacity .12s; }
+.page:hover .remove, .page:focus-within .remove { opacity: 1; }
+.remove:hover { border-color: var(--red); color: var(--red); }
+.info { min-width: 0; }
+.name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dims { color: var(--muted); font-size: 12px; }
+.tools { display: flex; justify-content: space-between; gap: 4px; }
+.empty { grid-column: 1 / -1; color: var(--muted); padding: 70px 20px; text-align: center; background: var(--panel); border: 2px dashed var(--border); border-radius: 12px; }
+.empty strong { display: block; color: var(--text); font-size: 16px; margin-bottom: 4px; }
+.side { position: sticky; top: 76px; display: flex; flex-direction: column; gap: 14px; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; box-shadow: var(--shadow); }
+.panel h2 { margin: 0 0 10px; font-size: 14px; }
+.field { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
+.field > span { color: var(--muted); }
+.field.stack { grid-template-columns: 1fr; gap: 4px; margin-top: 4px; }
+select, input[type=text] { width: 100%; background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; padding: 5px 8px; min-width: 0; }
+select:disabled { opacity: .5; }
+select:focus, input[type=text]:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.hint { color: var(--muted); font-size: 12px; margin: 2px 0 10px; overflow-wrap: anywhere; }
+.mono { font-family: var(--mono); font-size: 11.5px; }
+.result { border-color: var(--green); background: color-mix(in srgb, var(--green-soft) 55%, var(--panel)); }
+.result h2 { color: var(--green); }
+.path { display: block; font-family: var(--mono); font-size: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; overflow-wrap: anywhere; }
+.row { display: flex; gap: 8px; margin: 10px 0 8px; }
+.row .btn { flex: 1; }
+.done { width: 100%; }
+.tips ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; }
+.tips li + li { margin-top: 3px; }
+kbd { font-family: var(--mono); font-size: 11px; background: var(--panel-2); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--text); }
+.dropzone { position: fixed; inset: 0; z-index: 40; display: none; place-items: center; background: color-mix(in srgb, var(--accent) 16%, transparent); backdrop-filter: blur(1px); pointer-events: none; }
+.dropzone.show { display: grid; }
+.dropzone div { background: var(--panel); border: 2px dashed var(--accent); border-radius: 14px; padding: 28px 40px; font-size: 17px; font-weight: 700; color: var(--accent); box-shadow: 0 10px 30px rgba(0, 0, 0, .2); }
+.toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 30; }
+.toast { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--green); border-radius: 8px; padding: 8px 12px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); max-width: 440px; font-size: 13px; }
+.toast.error { border-left-color: var(--red); }
+.toast .detail { color: var(--muted); display: block; margin-top: 2px; overflow-wrap: anywhere; font-size: 12px; }
+.finished { max-width: 460px; margin: 16vh auto; text-align: center; padding: 0 20px; }
+.finished h1 { font-size: 22px; margin: 12px 0 6px; }
+.finished p { color: var(--muted); }
+.finished .logo { margin: 0 auto; width: 52px; height: 52px; font-size: 28px; border-radius: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand"><div class="logo">📄</div>merge-pdf <span class="count" id="count"></span></div>
+    <div class="spacer"></div>
+    <div class="segmented">
+      <span class="seg-label">Sort</span>
+      <button class="btn" data-sort="name" title="Sort by file name">Name</button>
+      <button class="btn" data-sort="date" title="Sort by date taken, else file date">Date</button>
+      <button class="btn" data-sort="reverse" title="Reverse the order">Reverse</button>
+    </div>
+    <button class="btn" id="undo" disabled title="Bring back the last removed page (Ctrl+Z)">Undo</button>
+    <button class="btn primary" id="add">+ Add images</button>
+    <input type="file" id="picker" accept="image/*,.tif,.tiff" multiple hidden>
+  </div>
+</header>
+
+<div class="layout">
+  <main class="grid" id="grid" aria-label="Pages"></main>
+
+  <aside class="side">
+    <section class="panel">
+      <h2>PDF settings</h2>
+      <label class="field"><span>Page size</span>
+        <select id="page"><option value="fit">Fit each image</option><option value="a4">A4</option><option value="letter">Letter</option></select></label>
+      <label class="field"><span>Orientation</span>
+        <select id="orientation"><option value="auto">Auto per image</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
+      <label class="field"><span>Margin</span>
+        <select id="margin"><option value="none">None</option><option value="small">Small</option><option value="medium">Medium</option></select></label>
+      <label class="field"><span>Quality</span>
+        <select id="quality"><option value="high">High</option><option value="small">Smaller file</option></select></label>
+      <p class="hint" id="fit-hint">Orientation and margin apply to A4 and Letter pages.</p>
+      <label class="field stack"><span>File name</span><input type="text" id="output" spellcheck="false" autocomplete="off"></label>
+      <p class="hint">Saved in <span class="mono" id="output-dir"></span></p>
+      <button class="btn primary big" id="create">Create PDF</button>
+    </section>
+
+    <section class="panel result" id="result" hidden>
+      <h2>✓ PDF saved</h2>
+      <code class="path" id="result-path"></code>
+      <p class="hint" id="result-meta"></p>
+      <div class="row"><button class="btn" id="open-pdf">Open PDF</button><button class="btn" id="open-folder">Show in folder</button></div>
+      <button class="btn done" id="done">Done</button>
+    </section>
+
+    <section class="panel tips">
+      <h2>Tips</h2>
+      <ul>
+        <li>Drag pages to reorder them, or drop image files anywhere to add them.</li>
+        <li>Focus a page, then <kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd> moves it, <kbd>R</kbd> rotates, <kbd>Del</kbd> removes.</li>
+        <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> brings back a removed page.</li>
+      </ul>
+    </section>
+  </aside>
+</div>
+
+<div class="dropzone" id="dropzone"><div>Drop images to add them</div></div>
+<div class="toasts" id="toasts"></div>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const IMAGE_RE = /\.(jpe?g|jfif|png|webp|bmp|gif|tiff?)$/i;
+const grid = $("grid");
+
+const state = {
+  items: [], canUndo: false, settings: {}, outputDir: "", lastOutput: null,
+  dragId: null, focusId: null, busy: false, loaded: false,
+};
+
+// ---- api ---------------------------------------------------------------------
+
+async function api(path, options = {}) {
+  const response = await fetch(path, { credentials: "same-origin", cache: "no-store", ...options });
+  let body;
+  try { body = await response.json(); } catch (_) { body = { error: response.statusText }; }
+  if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+  return body;
+}
+
+const post = (path, payload = {}) =>
+  api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+
+function apply(next) {
+  for (const key of ["items", "canUndo", "settings", "outputDir", "lastOutput"]) {
+    if (key in next) state[key] = next[key];
+  }
+  state.loaded = true;
+  render();
+}
+
+async function call(promise, errorTitle) {
+  try {
+    const next = await promise;
+    apply(next);
+    return next;
+  } catch (err) {
+    toast(errorTitle, err.message, true);
+    return null;
+  }
+}
+
+function toast(title, detail = "", isError = false) {
+  const el = document.createElement("div");
+  el.className = "toast" + (isError ? " error" : "");
+  el.innerHTML = `${esc(title)}${detail ? `<span class="detail">${esc(detail)}</span>` : ""}`;
+  $("toasts").appendChild(el);
+  setTimeout(() => el.remove(), isError ? 9000 : 4000);
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// ---- rendering ---------------------------------------------------------------
+
+function card(item, index) {
+  const sideways = item.rotation % 180 !== 0;
+  const width = sideways ? item.height : item.width;
+  const height = sideways ? item.width : item.height;
+  const id = esc(item.id);
+  const tool = (attr, label, title) => `<button class="icon" ${attr} data-for="${id}" title="${title}" aria-label="${title}">${label}</button>`;
+  return `<article class="page" draggable="true" tabindex="0" data-id="${id}" aria-label="Page ${index + 1}: ${esc(item.name)}">
+    <div class="thumb"><img src="/api/thumb?id=${encodeURIComponent(item.id)}" alt="" draggable="false" style="transform: rotate(${item.rotation}deg)"></div>
+    <span class="num">${index + 1}</span>
+    <button class="icon remove" data-remove="${id}" title="Remove (Delete)" aria-label="Remove page">✕</button>
+    <div class="info">
+      <div class="name" title="${esc(item.name)}">${esc(item.name)}</div>
+      <div class="dims">${width} × ${height}${item.uploaded ? " · added here" : ""}</div>
+    </div>
+    <div class="tools">
+      ${tool('data-move="start"', "⇤", "Move to start (Alt+Home)")}
+      ${tool('data-move="left"', "←", "Move left (Alt+←)")}
+      ${tool('data-rotate="-90"', "⟲", "Rotate left (Shift+R)")}
+      ${tool('data-rotate="90"', "⟳", "Rotate right (R)")}
+      ${tool('data-move="right"', "→", "Move right (Alt+→)")}
+      ${tool('data-move="end"', "⇥", "Move to end (Alt+End)")}
+    </div>
+  </article>`;
+}
+
+function render() {
+  const count = state.items.length;
+  $("count").textContent = state.loaded ? `${count} page${count === 1 ? "" : "s"}` : "";
+  $("undo").disabled = !state.canUndo;
+  $("create").disabled = !count || state.busy;
+  $("create").textContent = state.busy ? "Creating…" : "Create PDF";
+
+  grid.innerHTML = count
+    ? state.items.map(card).join("")
+    : (state.loaded ? `<div class="empty"><strong>No images yet</strong>Drop image files here or use + Add images.</div>` : "");
+
+  const s = state.settings;
+  for (const key of ["page", "orientation", "margin", "quality"]) if (s[key]) $(key).value = s[key];
+  if (document.activeElement !== $("output") && s.output) $("output").value = s.output;
+  const fit = s.page === "fit";
+  $("orientation").disabled = fit;
+  $("margin").disabled = fit;
+  $("fit-hint").hidden = !fit;
+  $("output-dir").textContent = state.outputDir;
+
+  const out = state.lastOutput;
+  $("result").hidden = !out;
+  if (out) {
+    $("result-path").textContent = out.path;
+    $("result-meta").textContent = `${out.pages} page${out.pages === 1 ? "" : "s"} · ${formatBytes(out.sizeBytes)}`;
+  }
+
+  if (state.focusId) {
+    const el = grid.querySelector(`.page[data-id="${CSS.escape(state.focusId)}"]`);
+    if (el) el.focus();
+    state.focusId = null;
+  }
+}
+
+// ---- page actions ------------------------------------------------------------
+
+const ids = () => state.items.map((item) => item.id);
+
+async function saveOrder(order, focusId) {
+  const byId = new Map(state.items.map((item) => [item.id, item]));
+  state.items = order.map((id) => byId.get(id));  // show the new order right away
+  state.focusId = focusId;
+  render();
+  await call(post("/api/order", { order }), "Couldn't reorder the pages");
+}
+
+function moveTo(id, where) {
+  const order = ids();
+  const from = order.indexOf(id);
+  if (from < 0) return;
+  const to = { start: 0, end: order.length - 1, left: Math.max(0, from - 1), right: Math.min(order.length - 1, from + 1) }[where];
+  if (to === undefined || to === from) return;
+  order.splice(from, 1);
+  order.splice(to, 0, id);
+  saveOrder(order, id);
+}
+
+function rotate(id, delta) {
+  state.focusId = id;
+  call(post("/api/rotate", { id, delta }), "Couldn't rotate the page");
+}
+
+async function remove(id) {
+  const order = ids();
+  const index = order.indexOf(id);
+  const item = state.items[index];
+  state.focusId = order[index + 1] || order[index - 1] || null;
+  if (await call(post("/api/remove", { id }), "Couldn't remove the page")) {
+    toast(`Removed ${item ? item.name : "page"}`, "Undo (Ctrl+Z) brings it back.");
+  }
+}
+
+function undo() {
+  if (state.canUndo) call(post("/api/undo"), "Nothing to undo");
+}
+
+async function uploadFiles(fileList) {
+  const files = [...fileList];
+  const images = files.filter((file) => IMAGE_RE.test(file.name));
+  if (files.length > images.length) {
+    toast(`Skipped ${files.length - images.length} file(s)`, "Only JPG, PNG, WEBP, BMP, GIF and TIFF images can be added.", true);
+  }
+  let added = 0;
+  for (const file of images) {
+    try {
+      apply(await api("/api/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name) },
+        body: file,
+      }));
+      added++;
+    } catch (err) {
+      toast(`Couldn't add ${file.name}`, err.message, true);
+    }
+  }
+  if (added) toast(`Added ${added} image${added === 1 ? "" : "s"}`);
+}
+
+async function createPdf() {
+  if ($("output").value !== state.settings.output) {
+    await call(post("/api/settings", { output: $("output").value }), "Couldn't use that file name");
+  }
+  state.busy = true;
+  render();
+  try {
+    const next = await post("/api/create");
+    apply(next);
+    toast("PDF created", next.output.path);
+  } catch (err) {
+    toast("Couldn't create the PDF", err.message, true);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function finish() {
+  try { await post("/api/done"); } catch (_) { /* already stopped */ }
+  document.body.innerHTML = `<div class="finished"><div class="logo">📄</div><h1>All done</h1>
+    <p>merge-pdf has stopped. You can close this tab.</p></div>`;
+}
+
+// ---- drag to reorder ---------------------------------------------------------
+
+function clearMarkers() {
+  grid.querySelectorAll(".drop-before, .drop-after").forEach((el) => el.classList.remove("drop-before", "drop-after"));
+}
+
+function nearestCard(event) {
+  let best = null;
+  for (const el of grid.querySelectorAll(".page")) {
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const distance = Math.hypot(event.clientX - cx, (event.clientY - cy) * 1.6);
+    if (!best || distance < best.distance) best = { el, distance, after: event.clientX > cx };
+  }
+  return best;
+}
+
+grid.addEventListener("dragstart", (event) => {
+  const el = event.target.closest(".page");
+  if (!el) return;
+  state.dragId = el.dataset.id;
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", state.dragId);
+  requestAnimationFrame(() => el.classList.add("dragging"));
+});
+
+grid.addEventListener("dragend", () => {
+  state.dragId = null;
+  clearMarkers();
+  grid.querySelectorAll(".dragging").forEach((el) => el.classList.remove("dragging"));
+});
+
+grid.addEventListener("dragover", (event) => {
+  if (!state.dragId) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  clearMarkers();
+  const target = nearestCard(event);
+  if (target && target.el.dataset.id !== state.dragId) target.el.classList.add(target.after ? "drop-after" : "drop-before");
+});
+
+grid.addEventListener("drop", (event) => {
+  if (!state.dragId) return;
+  event.preventDefault();
+  const id = state.dragId;
+  const target = nearestCard(event);
+  clearMarkers();
+  if (!target || target.el.dataset.id === id) return;
+  const order = ids().filter((other) => other !== id);
+  order.splice(order.indexOf(target.el.dataset.id) + (target.after ? 1 : 0), 0, id);
+  saveOrder(order, id);
+});
+
+// ---- dropping files from the computer -----------------------------------------
+
+let fileDragDepth = 0;
+const hasFiles = (event) => [...(event.dataTransfer?.types || [])].includes("Files");
+
+window.addEventListener("dragenter", (event) => {
+  if (!hasFiles(event)) return;
+  fileDragDepth++;
+  $("dropzone").classList.add("show");
+});
+window.addEventListener("dragleave", (event) => {
+  if (!hasFiles(event)) return;
+  fileDragDepth = Math.max(0, fileDragDepth - 1);
+  if (!fileDragDepth) $("dropzone").classList.remove("show");
+});
+window.addEventListener("dragover", (event) => { if (hasFiles(event)) event.preventDefault(); });
+window.addEventListener("drop", (event) => {
+  if (!hasFiles(event)) return;
+  event.preventDefault();
+  fileDragDepth = 0;
+  $("dropzone").classList.remove("show");
+  uploadFiles(event.dataTransfer.files);
+});
+
+// ---- other events ------------------------------------------------------------
+
+document.addEventListener("click", (event) => {
+  const el = event.target.closest("button");
+  if (!el) return;
+  if (el.dataset.remove) remove(el.dataset.remove);
+  else if (el.dataset.rotate) rotate(el.dataset.for, Number(el.dataset.rotate));
+  else if (el.dataset.move) moveTo(el.dataset.for, el.dataset.move);
+  else if (el.dataset.sort) call(post("/api/sort", { by: el.dataset.sort }), "Couldn't sort the pages");
+});
+
+grid.addEventListener("keydown", (event) => {
+  const el = event.target;
+  if (!el.classList || !el.classList.contains("page")) return;
+  const id = el.dataset.id;
+  const cards = [...grid.querySelectorAll(".page")];
+  const index = cards.indexOf(el);
+  const key = event.key;
+  if (event.altKey && key === "ArrowLeft") moveTo(id, "left");
+  else if (event.altKey && key === "ArrowRight") moveTo(id, "right");
+  else if (event.altKey && key === "Home") moveTo(id, "start");
+  else if (event.altKey && key === "End") moveTo(id, "end");
+  else if (!event.altKey && key === "ArrowLeft" && index > 0) cards[index - 1].focus();
+  else if (!event.altKey && key === "ArrowRight" && index < cards.length - 1) cards[index + 1].focus();
+  else if (!event.ctrlKey && !event.metaKey && key.toLowerCase() === "r") rotate(id, event.shiftKey ? -90 : 90);
+  else if (key === "Delete" || key === "Backspace") remove(id);
+  else return;
+  event.preventDefault();
+});
+
+document.addEventListener("keydown", (event) => {
+  const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !typing) {
+    event.preventDefault();
+    undo();
+  }
+});
+
+for (const key of ["page", "orientation", "margin", "quality"]) {
+  $(key).addEventListener("change", (event) => call(post("/api/settings", { [key]: event.target.value }), "Couldn't save the setting"));
+}
+$("output").addEventListener("change", (event) => call(post("/api/settings", { output: event.target.value }), "Couldn't use that file name"));
+$("output").addEventListener("keydown", (event) => { if (event.key === "Enter") event.target.blur(); });
+$("undo").addEventListener("click", undo);
+$("add").addEventListener("click", () => $("picker").click());
+$("picker").addEventListener("change", (event) => { uploadFiles(event.target.files); event.target.value = ""; });
+$("create").addEventListener("click", createPdf);
+$("open-pdf").addEventListener("click", () => call(post("/api/open", { what: "pdf" }), "Couldn't open the PDF"));
+$("open-folder").addEventListener("click", () => call(post("/api/open", { what: "folder" }), "Couldn't open the folder"));
+$("done").addEventListener("click", finish);
+
+call(api("/api/state"), "Couldn't load the images");
+</script>
+</body>
+</html>

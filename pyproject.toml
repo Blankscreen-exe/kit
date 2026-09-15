@@ -17,6 +17,8 @@ dependencies = [
     "textual>=0.80",
     # tools/qr, tools/serve (via lib/kitlib/qr.py)
     "segno>=1.6",
+    # tools/merge-pdf
+    "pillow>=10",
 ]
 
 [tool.uv]
