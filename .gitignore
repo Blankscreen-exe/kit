@@ -14,7 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# lib/ is deliberately NOT ignored: lib/kitlib holds kit's shared helpers.
 lib64/
 parts/
 sdist/
