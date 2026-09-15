@@ -383,12 +383,58 @@ function renderImages() {
   }));
 }
 
+const isAnonymous = (name) => /^[0-9a-f]{64}$/.test(name);
+
+function volumeCard(v) {
+  const anonymous = isAnonymous(v.name);
+  const users = v.usedBy || [];
+  const [colour, label] = users.some((u) => u.state === "running") ? ["green", "in use"]
+    : users.length ? ["grey", "attached"] : ["amber", "unused"];
+  const usedBy = users.length
+    ? users.map((u) => `<span class="mono">${esc(u.name)}</span>${u.state === "running" ? "" : ` <span class="muted">(${esc(u.state)})</span>`}`).join("<br>")
+    : '<span class="muted">No containers</span>';
+  const commands = [
+    `docker volume inspect ${v.name}`,
+    `docker run --rm -v ${v.name}:/data alpine ls -la /data`,
+    `docker volume rm ${v.name}`,
+  ];
+  return `<article class="card">
+    <div class="card-top">
+      <span class="badge ${colour}">${label}</span>
+      <h3 title="${esc(v.name)}">${esc(anonymous ? v.name.slice(0, 12) + "…" : v.name)}</h3>
+      ${anonymous ? '<span class="muted service">anonymous</span>' : ""}
+    </div>
+    <dl class="meta">
+      <dt>Used by</dt><dd>${usedBy}</dd>
+      <dt>Driver</dt><dd>${esc(v.driver)}</dd>
+      <dt>Path</dt><dd class="mono">${esc(v.mountpoint)}</dd>
+    </dl>
+    <details class="cmds" data-name="volume:${esc(v.name)}"${state.openCmds.has(`volume:${v.name}`) ? " open" : ""}>
+      <summary>Commands</summary>${commands.map(cmdLine).join("")}
+    </details>
+  </article>`;
+}
+
 function renderVolumes() {
-  const list = state.volumes.filter((v) => matches(v.name, v.driver, v.mountpoint));
+  const list = state.volumes.filter((v) =>
+    matches(v.name, v.driver, v.mountpoint, v.project, (v.usedBy || []).map((u) => u.name).join(" ")));
   if (!list.length) return empty(state.volumes.length, "volumes");
-  return table(["Name", "Driver", "Mountpoint", "Commands"], list.map((v) =>
-    `<tr><td class="mono">${esc(v.name)}</td><td>${esc(v.driver)}</td><td class="mono">${esc(v.mountpoint)}</td>
-      <td>${cmdLine(`docker volume inspect ${v.name}`)}${cmdLine(`docker volume rm ${v.name}`)}</td></tr>`));
+  const groups = new Map();
+  for (const v of list) {
+    if (!groups.has(v.project)) groups.set(v.project, []);
+    groups.get(v.project).push(v);
+  }
+  const keys = [...groups.keys()].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b));
+  const namedFirst = (a, b) => isAnonymous(a.name) - isAnonymous(b.name) || a.name.localeCompare(b.name);
+  return keys.map((key) => {
+    const items = groups.get(key).sort(namedFirst);
+    const inUse = items.filter((v) => (v.usedBy || []).some((u) => u.state === "running")).length;
+    return `<section class="group">
+      <div class="group-head"><h2>${key ? esc(key) : "Other volumes"}</h2>
+        <span class="muted">${inUse} of ${items.length} in use${key ? " · compose project" : ""}</span></div>
+      <div class="cards">${items.map(volumeCard).join("")}</div>
+    </section>`;
+  }).join("");
 }
 
 function renderNetworks() {
@@ -515,11 +561,16 @@ function schedule() {
 
 // ---- events ------------------------------------------------------------------
 
+// Open the tab named in the address (e.g. #volumes), so a refresh or bookmark keeps it.
+const initialTab = location.hash.slice(1);
+if (TABS.includes(initialTab)) state.tab = initialTab;
+
 document.addEventListener("click", (event) => {
   const el = event.target.closest("button");
   if (!el) return;
   if (el.dataset.tab) {
     state.tab = el.dataset.tab;
+    history.replaceState(null, "", `#${state.tab}`);
     render();
     loadTab().then(loadStats);
   } else if (el.dataset.action) {

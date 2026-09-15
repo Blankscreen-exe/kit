@@ -16,7 +16,11 @@ kit docker-view [--port N] [--no-open]
 - Each container has Start/Stop, Restart, Pause/Unpause, Logs and Remove buttons. Stop and Remove ask first.
 - Every action reports the exact `docker ...` command it ran. Each card also lists copyable commands
   (`logs -f`, `exec -it <name> sh`, `inspect`, ...) so you can do the same from a terminal.
-- Images, volumes and networks are listed with copyable commands; the page only changes containers.
+- Volumes are cards grouped by Compose project, showing which containers use each one (in use / attached / unused)
+  and copyable inspect, list-files and remove commands. Anonymous volumes are shortened and listed last.
+- Images and networks are listed in tables with copyable commands. The page only ever changes containers,
+  never images, volumes or networks.
+- The open tab is kept in the address (e.g. `#volumes`), so refreshing or bookmarking returns to it.
 - Refreshes every 5 seconds (untick Auto-refresh to pause). The filter box searches names, images and projects.
 - Press Ctrl+C in the terminal to stop it.
 

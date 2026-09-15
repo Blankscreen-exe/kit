@@ -201,12 +201,36 @@ def list_images() -> list[dict]:
     } for i in json_lines(docker("images", "--format", "{{json .}}"))]
 
 
+def volume_users() -> dict[str, list[dict]]:
+    """Volume name -> the containers that mount it, with their state."""
+    users: dict[str, list[dict]] = {}
+    for line in docker("ps", "-a", "--no-trunc", "--format", "{{.Names}}\t{{.State}}\t{{.Mounts}}").splitlines():
+        if not line.strip():
+            continue
+        name, _, rest = line.partition("\t")
+        state, _, mounts = rest.partition("\t")
+        for mount in filter(None, (m.strip() for m in mounts.split(","))):
+            users.setdefault(mount, []).append({"name": name.split(",")[0], "state": state})
+    return users
+
+
 def list_volumes() -> list[dict]:
-    return [{
-        "name": v.get("Name", ""),
-        "driver": v.get("Driver", ""),
-        "mountpoint": v.get("Mountpoint", ""),
-    } for v in json_lines(docker("volume", "ls", "--format", "{{json .}}"))]
+    users = volume_users()
+    volumes = []
+    for line in docker("volume", "ls", "--format", '{{json .}}\t{{.Label "com.docker.compose.project"}}').splitlines():
+        if not line.strip():
+            continue
+        raw, _, project = line.rpartition("\t")
+        item = json.loads(raw)
+        name = item.get("Name", "")
+        volumes.append({
+            "name": name,
+            "driver": item.get("Driver", ""),
+            "mountpoint": item.get("Mountpoint", ""),
+            "project": project.strip(),
+            "usedBy": users.get(name, []),
+        })
+    return volumes
 
 
 def list_networks() -> list[dict]:
