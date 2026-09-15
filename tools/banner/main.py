@@ -8,23 +8,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from kitlib import KIT_HOME, die
-
-VENDORED = KIT_HOME / "vendor" / "figlet-win32"
-
-
-def locate_figlet() -> tuple[str, Path | None]:
-    """(figlet executable, font directory to pass with -d, or None for figlet's own default)."""
-    vendored = VENDORED / "figlet.exe"
-    if sys.platform.startswith("win") and vendored.is_file():
-        return str(vendored), VENDORED / "fonts"
-    system = shutil.which("figlet")
-    if system:
-        return system, None
-    die("figlet not found - install it (e.g. 'sudo apt install figlet') or put it on PATH")
+from kitlib import die
+from kitlib.figlet import FigletError, figlet_command, locate_figlet
 
 
-def list_fonts(exe: str, font_dir: Path | None) -> int:
+def list_fonts() -> int:
+    exe, font_dir = locate_figlet()
     if font_dir is None:
         font_dir = Path(subprocess.run([exe, "-I2"], capture_output=True, text=True).stdout.strip())
     fonts = sorted((p.stem for p in font_dir.glob("*.flf")), key=str.lower)
@@ -42,16 +31,15 @@ def main() -> int:
     parser.add_argument("--fonts", action="store_true", help="list available fonts and exit")
     args = parser.parse_args()
 
-    exe, font_dir = locate_figlet()
-    if args.fonts:
-        return list_fonts(exe, font_dir)
+    try:
+        if args.fonts:
+            return list_fonts()
+        command = figlet_command(args.font, args.width)
+    except FigletError as exc:
+        die(str(exc))
     if not args.text and sys.stdin.isatty():
         parser.error("give some text to render, e.g.: kit banner hello")
 
-    command = [exe]
-    if font_dir is not None:
-        command += ["-d", str(font_dir)]
-    command += ["-f", args.font, "-w", str(args.width)]
     if args.text:
         command.append(" ".join(args.text))  # otherwise figlet reads stdin
     return subprocess.call(command)

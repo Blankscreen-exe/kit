@@ -1,0 +1,15 @@
+{red}lllllllllllllll  {green}lllllllllllllll
+{red}lllllllllllllll  {green}lllllllllllllll
+{red}lllllllllllllll  {green}lllllllllllllll
+{red}lllllllllllllll  {green}lllllllllllllll
+{red}lllllllllllllll  {green}lllllllllllllll
+{red}lllllllllllllll  {green}lllllllllllllll
+{red}lllllllllllllll  {green}lllllllllllllll
+
+{blue}lllllllllllllll  {yellow}lllllllllllllll
+{blue}lllllllllllllll  {yellow}lllllllllllllll
+{blue}lllllllllllllll  {yellow}lllllllllllllll
+{blue}lllllllllllllll  {yellow}lllllllllllllll
+{blue}lllllllllllllll  {yellow}lllllllllllllll
+{blue}lllllllllllllll  {yellow}lllllllllllllll
+{blue}lllllllllllllll  {yellow}lllllllllllllll

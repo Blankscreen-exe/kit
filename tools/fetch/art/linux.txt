@@ -1,0 +1,12 @@
+{gray}        #####
+{gray}       #######
+{gray}       ##{white}O{gray}#{white}O{gray}##
+{gray}       #{yellow}#####{gray}#
+{gray}     ##{white}##{yellow}###{white}##{gray}##
+{gray}    #{white}##########{gray}##
+{gray}   #{white}############{gray}##
+{gray}   #{white}############{gray}###
+{yellow}  ##{gray}#{white}###########{gray}##{yellow}#
+{yellow}######{gray}#{white}#######{gray}#{yellow}######
+{yellow}#######{gray}#{white}#####{gray}#{yellow}#######
+{yellow}  #####{gray}#######{yellow}#####

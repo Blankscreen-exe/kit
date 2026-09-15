@@ -8,13 +8,16 @@ $ kit
 kit - personal toolbox
 
   DOCS
-    md      md2pdf  Convert a Markdown file into a styled PDF or HTML page with coloured headings, highlighted code and tables.
+    md      md2pdf    Convert a Markdown file into a styled PDF or HTML page with coloured headings, highlighted code and tables.
+
+  SYSTEM
+    fetch   neofetch  Show system information next to colourful ASCII art, in the style of neofetch.
 
   TEXT
-    banner          Render text as a big ASCII-art banner using figlet.
+    banner            Render text as a big ASCII-art banner using figlet.
 
   TIME
-    time    t       Time arithmetic for tracking hours: span between clock times, duration differences and totals.
+    time    t         Time arithmetic for tracking hours: span between clock times, duration differences and totals.
 
 run:       kit <tool> [args]      docs: kit help <tool>
 built-ins: list, help, new, doctor, path
@@ -156,4 +159,5 @@ install.sh        Linux/macOS installer / uninstaller
 | `KIT_PYTHON` | Skip uv and run kit with this Python interpreter instead |
 | `KIT_PATH` | Extra folders to load tools from |
 | `KIT_BROWSER` | Browser the `md` tool uses to print PDFs |
+| `KIT_FETCH_ART` | Default art for `kit fetch`: a name from its `art/` folder or a path to a text file |
 | `NO_COLOR` | Turn off coloured output |
