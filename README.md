@@ -7,17 +7,33 @@ from PowerShell, cmd, or a Linux/macOS shell.
 $ kit
 kit - personal toolbox
 
+  DEV
+    dev                    Developer utilities: UUIDs, hashes, base64, JWT decoding, timestamps, JSON, URL encoding and secrets.
+    docker-view  dv        A local web dashboard for Docker containers, images, volumes and networks, with action buttons and the matching docker commands.
+
   DOCS
-    md      md2pdf    Convert a Markdown file into a styled PDF or HTML page with coloured headings, highlighted code and tables.
+    md           md2pdf    Convert a Markdown file into a styled PDF or HTML page with coloured headings, highlighted code and tables.
+
+  NETWORK
+    port         ports     See what's using network ports, stop it, and find free ports.
+    serve        share     Share a folder, or an app running on this computer, with other devices on your network, with a QR code for your phone.
+    ssh                    List, add, remove and connect to the SSH hosts saved in your ~/.ssh/config.
+
+  PRODUCTIVITY
+    pomodoro     pomo      A pomodoro focus timer in the terminal that you can drive with the mouse or keyboard, and that keeps a history of your sessions.
 
   SYSTEM
-    fetch   neofetch  Show system information next to colourful ASCII art, in the style of neofetch.
+    fetch        neofetch  Show system information next to colourful ASCII art, in the style of neofetch.
+    pathfix                Find and clean up duplicate, missing and redundant folders in your PATH.
 
   TEXT
-    banner            Render text as a big ASCII-art banner using figlet.
+    banner                 Render text as a big ASCII-art banner using figlet.
 
   TIME
-    time    t         Time arithmetic for tracking hours: span between clock times, duration differences and totals.
+    time         t         Time arithmetic for tracking hours: span between clock times, duration differences and totals.
+
+  UTILS
+    qr                     Show a QR code in the terminal for any text or URL, or save it as a PNG or SVG.
 
 run:       kit <tool> [args]      docs: kit help <tool>
 built-ins: list, help, new, doctor, path
@@ -160,4 +176,7 @@ install.sh        Linux/macOS installer / uninstaller
 | `KIT_PATH` | Extra folders to load tools from |
 | `KIT_BROWSER` | Browser the `md` tool uses to print PDFs |
 | `KIT_FETCH_ART` | Default art for `kit fetch`: a name from its `art/` folder or a path to a text file |
+| `KIT_SSH_CONFIG` | SSH config file `kit ssh` reads and edits (default `~/.ssh/config`) |
+| `KIT_POMODORO_DATA` | Where `kit pomodoro` keeps settings and history (default `%APPDATA%\kit\pomodoro.json` / `~/.local/share/kit/pomodoro.json`) |
+| `KIT_BACKUP_DIR` | Where `kit ssh` and `kit pathfix` save backups before changing files |
 | `NO_COLOR` | Turn off coloured output |

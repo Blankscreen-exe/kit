@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>docker-view</title>
+<style>
+:root {
+  --bg: #f4f6f9; --panel: #ffffff; --panel-2: #f0f3f7; --border: #dce2ea; --text: #1d2733; --muted: #647387;
+  --accent: #1d63ed; --accent-soft: #e7eefe;
+  --green: #1a7f37; --green-soft: #dcf5e3; --amber: #9a6700; --amber-soft: #fcf0d0;
+  --red: #cf222e; --red-soft: #fde5e5; --grey: #57606a; --grey-soft: #e9edf1;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .07);
+  --mono: "Cascadia Code", Consolas, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel-2: #1d242e; --border: #2c3643; --text: #e6edf3; --muted: #8d99a8;
+    --accent: #4c8dff; --accent-soft: #15233d;
+    --green: #3fb950; --green-soft: #12301b; --amber: #d29922; --amber-soft: #382a0b;
+    --red: #f85149; --red-soft: #3c1618; --grey: #8b949e; --grey-soft: #262d36;
+    --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, -apple-system, Roboto, "Noto Sans", sans-serif; }
+button, input, select { font: inherit; color: inherit; }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--border); }
+.bar { max-width: 1320px; margin: 0 auto; padding: 12px 20px 8px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
+.logo { width: 30px; height: 30px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; font-size: 17px; }
+.version { color: var(--muted); font-weight: 400; font-size: 12.5px; }
+.spacer { flex: 1; }
+input[type=search], select { background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; padding: 5px 10px; }
+input[type=search] { width: 280px; max-width: 100%; }
+input[type=search]:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.toggle { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; user-select: none; white-space: nowrap; }
+.updated { color: var(--muted); font-size: 12px; min-width: 120px; text-align: right; }
+nav.tabs { max-width: 1320px; margin: 0 auto; padding: 0 20px; display: flex; gap: 2px; }
+.tab { border: 0; background: none; color: var(--muted); padding: 8px 14px 10px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.count { background: var(--panel-2); color: var(--muted); border-radius: 999px; padding: 0 7px; font-size: 11.5px; margin-left: 6px; }
+.count:empty { display: none; }
+main { max-width: 1320px; margin: 0 auto; padding: 20px; }
+.banner { display: none; background: var(--red-soft); color: var(--red); border: 1px solid var(--red); border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; font-weight: 600; }
+.banner.show { display: block; }
+.group { margin-bottom: 26px; }
+.group-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; }
+.group-head h2 { font-size: 15px; margin: 0; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(370px, 1fr)); gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.card-top h3 { margin: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-top .service { margin-left: auto; }
+.badge { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.badge.green { color: var(--green); background: var(--green-soft); }
+.badge.amber { color: var(--amber); background: var(--amber-soft); }
+.badge.red { color: var(--red); background: var(--red-soft); }
+.badge.grey { color: var(--grey); background: var(--grey-soft); }
+.meta { display: grid; grid-template-columns: 70px 1fr; gap: 3px 10px; font-size: 12.5px; margin: 0; }
+.meta dt { color: var(--muted); }
+.meta dd { margin: 0; overflow-wrap: anywhere; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.muted { color: var(--muted); }
+.meter { display: inline-block; vertical-align: middle; width: 90px; height: 6px; margin-left: 8px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+.meter > span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.btn { border: 1px solid var(--border); background: var(--panel-2); border-radius: 6px; padding: 4px 11px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.danger { color: var(--red); }
+.btn.danger:hover { border-color: var(--red); }
+.btn:disabled { opacity: .55; cursor: progress; }
+details.cmds summary { cursor: pointer; color: var(--muted); font-size: 12.5px; user-select: none; }
+details.cmds summary:hover { color: var(--text); }
+.cmd { display: flex; align-items: center; gap: 8px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 3px 3px 10px; margin-top: 6px; }
+.cmd code { flex: 1; font-family: var(--mono); font-size: 12px; overflow-x: auto; white-space: nowrap; }
+.copy { border: 0; background: none; color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; padding: 2px 8px; border-radius: 4px; }
+.copy:hover { background: var(--accent-soft); }
+.table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: top; }
+th { background: var(--panel-2); color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; }
+tr:last-child td { border-bottom: 0; }
+td .cmd { min-width: 300px; }
+td .cmd:first-child { margin-top: 0; }
+.empty { color: var(--muted); padding: 40px; text-align: center; background: var(--panel); border: 1px dashed var(--border); border-radius: 10px; }
+.modal-back { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); display: none; align-items: center; justify-content: center; z-index: 20; padding: 20px; }
+.modal-back.show { display: flex; }
+.modal { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; width: min(1040px, 100%); max-height: 92vh; display: flex; flex-direction: column; box-shadow: 0 20px 50px rgba(0, 0, 0, .3); }
+.modal.small { width: min(470px, 100%); }
+.modal-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.modal-head h3 { margin: 0; font-size: 15px; flex: 1; min-width: 160px; }
+.modal-body { padding: 14px 16px; overflow: auto; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); }
+pre.logs { margin: 10px 0 0; background: #0b0f14; color: #d5dde6; font-family: var(--mono); font-size: 12px; line-height: 1.45; padding: 12px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; height: 62vh; overflow: auto; }
+.toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 30; }
+.toast { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--green); border-radius: 8px; padding: 8px 12px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); max-width: 440px; font-size: 13px; }
+.toast.error { border-left-color: var(--red); }
+.toast .mono { color: var(--muted); display: block; margin-top: 2px; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand"><div class="logo">🐳</div>docker-view <span class="version" id="version"></span></div>
+    <div class="spacer"></div>
+    <input type="search" id="filter" placeholder="Filter by name, image, project…" autocomplete="off">
+    <label class="toggle"><input type="checkbox" id="auto" checked> Auto-refresh</label>
+    <button class="btn" id="refresh">Refresh</button>
+    <span class="updated" id="updated"></span>
+  </div>
+  <nav class="tabs">
+    <button class="tab active" data-tab="containers">Containers<span class="count" id="count-containers"></span></button>
+    <button class="tab" data-tab="images">Images<span class="count" id="count-images"></span></button>
+    <button class="tab" data-tab="volumes">Volumes<span class="count" id="count-volumes"></span></button>
+    <button class="tab" data-tab="networks">Networks<span class="count" id="count-networks"></span></button>
+  </nav>
+</header>
+
+<main>
+  <div class="banner" id="banner"></div>
+  <div id="view"></div>
+</main>
+
+<div class="modal-back" id="logs-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="logs-title">Logs</h3>
+      <label class="toggle">Lines
+        <select id="logs-tail"><option>100</option><option selected>300</option><option>1000</option><option>5000</option></select>
+      </label>
+      <label class="toggle"><input type="checkbox" id="logs-follow" checked> Follow</label>
+      <button class="btn" id="logs-refresh">Refresh</button>
+      <button class="btn" id="logs-close">Close</button>
+    </div>
+    <div class="modal-body">
+      <div class="cmd"><code id="logs-cmd"></code><button class="copy" data-copy-from="logs-cmd">Copy</button></div>
+      <pre class="logs" id="logs-body"></pre>
+    </div>
+  </div>
+</div>
+
+<div class="modal-back" id="confirm-modal">
+  <div class="modal small">
+    <div class="modal-head"><h3 id="confirm-title">Are you sure?</h3></div>
+    <div class="modal-body">
+      <p id="confirm-text" style="margin-top: 0"></p>
+      <div class="cmd"><code id="confirm-cmd"></code></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="confirm-cancel">Cancel</button>
+      <button class="btn primary" id="confirm-ok">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const TABS = ["containers", "images", "volumes", "networks"];
+
+const state = {
+  tab: "containers",
+  containers: [], images: [], volumes: [], networks: [],
+  stats: {},
+  loaded: new Set(),
+  openCmds: new Set(),
+  filter: "",
+  timer: null, statsTimer: null,
+  logsTarget: null, logsTimer: null,
+  confirmResolve: null,
+};
+
+// ---- api ---------------------------------------------------------------------
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    cache: "no-store",
+    ...options,
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+  });
+  let body;
+  try { body = await response.json(); } catch (_) { body = { error: response.statusText }; }
+  if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+  return body;
+}
+
+function showBanner(message) {
+  $("banner").textContent = message || "";
+  $("banner").classList.toggle("show", Boolean(message));
+}
+
+function toast(title, detail = "", isError = false) {
+  const el = document.createElement("div");
+  el.className = "toast" + (isError ? " error" : "");
+  el.innerHTML = `${esc(title)}${detail ? `<span class="mono">${esc(detail)}</span>` : ""}`;
+  $("toasts").appendChild(el);
+  setTimeout(() => el.remove(), isError ? 9000 : 4500);
+}
+
+async function loadInfo() {
+  try {
+    const info = await api("/api/info");
+    $("version").textContent = `Docker ${info.server || info.client} · ${info.os}/${info.arch}`;
+  } catch (_) { /* the data loads show the banner */ }
+}
+
+async function loadTab(tab = state.tab) {
+  try {
+    state[tab] = (await api(`/api/${tab}`))[tab];
+    state.loaded.add(tab);
+    showBanner("");
+    $("updated").textContent = "Updated " + new Date().toLocaleTimeString();
+  } catch (err) {
+    showBanner(err.message);
+  }
+  updateCounts();
+  if (tab === state.tab) render();
+}
+
+async function loadStats() {
+  if (state.tab !== "containers" || !state.containers.some((c) => c.state === "running")) return;
+  try {
+    state.stats = (await api("/api/stats")).stats;
+    if (state.tab === "containers") render();
+  } catch (_) { /* stats are optional */ }
+}
+
+// ---- rendering ---------------------------------------------------------------
+
+function matches(...fields) {
+  const needle = state.filter.trim().toLowerCase();
+  return !needle || fields.join(" ").toLowerCase().includes(needle);
+}
+
+function updateCounts() {
+  for (const tab of TABS) $(`count-${tab}`).textContent = state.loaded.has(tab) ? state[tab].length : "";
+}
+
+function cmdLine(command) {
+  return `<div class="cmd"><code>${esc(command)}</code><button class="copy" data-copy="${esc(command)}">Copy</button></div>`;
+}
+
+function empty(total, noun) {
+  return `<div class="empty">${total ? `No ${noun} match the filter.` : `No ${noun}.`}</div>`;
+}
+
+function badge(c) {
+  if (c.state === "running" && c.health === "unhealthy") return ["red", "unhealthy"];
+  if (c.state === "restarting") return ["amber", "restarting"];
+  if (c.state === "paused") return ["amber", "paused"];
+  if (c.state === "running" && c.health === "starting") return ["amber", "starting"];
+  if (c.state === "running") return ["green", c.health === "healthy" ? "healthy" : "running"];
+  if (c.state === "dead") return ["red", "dead"];
+  return ["grey", c.state || "unknown"];
+}
+
+function shortPorts(ports) {
+  const seen = [];
+  for (const part of ports.split(", ")) {
+    const cleaned = part.replace(/^(0\.0\.0\.0|\[::\]):/, "");
+    if (cleaned && !seen.includes(cleaned)) seen.push(cleaned);
+  }
+  return seen.join(", ");
+}
+
+function usage(c) {
+  const s = state.stats[c.name];
+  if (!s || c.state !== "running") return "";
+  const meter = (value) => `<span class="meter"><span style="width:${Math.min(parseFloat(value) || 0, 100)}%"></span></span>`;
+  return `<dt>CPU</dt><dd>${esc(s.cpu)}${meter(s.cpu)}</dd>
+          <dt>Memory</dt><dd>${esc(s.mem)}${meter(s.memPerc)}</dd>`;
+}
+
+function actionButtons(c) {
+  const button = (action, label, cls = "") =>
+    `<button class="btn ${cls}" data-action="${action}" data-name="${esc(c.name)}">${label}</button>`;
+  const out = [];
+  if (c.state === "running") out.push(button("stop", "Stop"), button("restart", "Restart"), button("pause", "Pause"));
+  else if (c.state === "paused") out.push(button("unpause", "Unpause", "primary"), button("stop", "Stop"));
+  else if (c.state === "restarting") out.push(button("stop", "Stop"));
+  else out.push(button("start", "Start", "primary"));
+  out.push(`<button class="btn" data-logs="${esc(c.name)}">Logs</button>`);
+  if (!["running", "paused", "restarting"].includes(c.state)) out.push(button("remove", "Remove", "danger"));
+  return out.join("");
+}
+
+function containerCommands(name) {
+  return [
+    `docker start ${name}`, `docker stop ${name}`, `docker restart ${name}`, `docker logs -f ${name}`,
+    `docker exec -it ${name} sh`, `docker inspect ${name}`, `docker rm ${name}`,
+  ];
+}
+
+function card(c) {
+  const [colour, label] = badge(c);
+  return `<article class="card">
+    <div class="card-top">
+      <span class="badge ${colour}">${esc(label)}</span>
+      <h3 title="${esc(c.name)}">${esc(c.name)}</h3>
+      ${c.service ? `<span class="muted mono service">${esc(c.service)}</span>` : ""}
+    </div>
+    <dl class="meta">
+      <dt>Image</dt><dd class="mono">${esc(c.image)}</dd>
+      <dt>Status</dt><dd>${esc(c.status)}</dd>
+      ${c.ports ? `<dt>Ports</dt><dd class="mono">${esc(shortPorts(c.ports))}</dd>` : ""}
+      ${usage(c)}
+    </dl>
+    <div class="actions">${actionButtons(c)}</div>
+    <details class="cmds" data-name="${esc(c.name)}"${state.openCmds.has(c.name) ? " open" : ""}>
+      <summary>Commands</summary>${containerCommands(c.name).map(cmdLine).join("")}
+    </details>
+  </article>`;
+}
+
+function renderContainers() {
+  const list = state.containers.filter((c) => matches(c.name, c.image, c.project, c.service, c.status, c.ports));
+  if (!list.length) return state.loaded.has("containers") ? empty(state.containers.length, "containers") : "";
+  const groups = new Map();
+  for (const c of list) {
+    if (!groups.has(c.project)) groups.set(c.project, []);
+    groups.get(c.project).push(c);
+  }
+  const keys = [...groups.keys()].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b));
+  return keys.map((key) => {
+    const items = groups.get(key).sort((a, b) => a.name.localeCompare(b.name));
+    const running = items.filter((c) => c.state === "running").length;
+    return `<section class="group">
+      <div class="group-head"><h2>${key ? esc(key) : "Standalone containers"}</h2>
+        <span class="muted">${running} of ${items.length} running${key ? " · compose project" : ""}</span></div>
+      <div class="cards">${items.map(card).join("")}</div>
+    </section>`;
+  }).join("");
+}
+
+function table(headers, rows) {
+  return `<div class="table-wrap"><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
+    <tbody>${rows.join("")}</tbody></table></div>`;
+}
+
+function renderImages() {
+  const list = state.images.filter((i) => matches(i.repository, i.tag, i.id));
+  if (!list.length) return empty(state.images.length, "images");
+  return table(["Repository", "Tag", "ID", "Size", "Created", "Commands"], list.map((i) => {
+    const ref = i.repository === "<none>" ? i.id : `${i.repository}:${i.tag}`;
+    return `<tr><td class="mono">${esc(i.repository)}</td><td class="mono">${esc(i.tag)}</td><td class="mono">${esc(i.id)}</td>
+      <td>${esc(i.size)}</td><td>${esc(i.created)}</td>
+      <td>${cmdLine(`docker run --rm -it ${ref} sh`)}${cmdLine(`docker rmi ${ref}`)}</td></tr>`;
+  }));
+}
+
+function renderVolumes() {
+  const list = state.volumes.filter((v) => matches(v.name, v.driver, v.mountpoint));
+  if (!list.length) return empty(state.volumes.length, "volumes");
+  return table(["Name", "Driver", "Mountpoint", "Commands"], list.map((v) =>
+    `<tr><td class="mono">${esc(v.name)}</td><td>${esc(v.driver)}</td><td class="mono">${esc(v.mountpoint)}</td>
+      <td>${cmdLine(`docker volume inspect ${v.name}`)}${cmdLine(`docker volume rm ${v.name}`)}</td></tr>`));
+}
+
+function renderNetworks() {
+  const list = state.networks.filter((n) => matches(n.name, n.driver, n.scope, n.id));
+  if (!list.length) return empty(state.networks.length, "networks");
+  const builtIn = ["bridge", "host", "none"];
+  return table(["Name", "Driver", "Scope", "ID", "Commands"], list.map((n) =>
+    `<tr><td class="mono">${esc(n.name)}${n.internal ? ' <span class="muted">(internal)</span>' : ""}</td><td>${esc(n.driver)}</td>
+      <td>${esc(n.scope)}</td><td class="mono">${esc(n.id)}</td>
+      <td>${cmdLine(`docker network inspect ${n.name}`)}${builtIn.includes(n.name) ? "" : cmdLine(`docker network rm ${n.name}`)}</td></tr>`));
+}
+
+function render() {
+  const views = { containers: renderContainers, images: renderImages, volumes: renderVolumes, networks: renderNetworks };
+  $("view").innerHTML = views[state.tab]();
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === state.tab));
+}
+
+// ---- actions -----------------------------------------------------------------
+
+const DOCKER_VERB = { start: "start", stop: "stop", restart: "restart", pause: "pause", unpause: "unpause", remove: "rm" };
+const CONFIRMS = {
+  stop: ["Stop", "Its processes are stopped. You can start it again later."],
+  remove: ["Remove", "The container is deleted. Its image and named volumes are kept."],
+};
+
+function confirmDialog(title, text, command, okLabel) {
+  $("confirm-title").textContent = title;
+  $("confirm-text").textContent = text;
+  $("confirm-cmd").textContent = command;
+  $("confirm-ok").textContent = okLabel;
+  $("confirm-ok").classList.toggle("danger", okLabel === "Remove");
+  $("confirm-modal").classList.add("show");
+  $("confirm-ok").focus();
+  return new Promise((resolve) => { state.confirmResolve = resolve; });
+}
+
+function closeConfirm(result) {
+  $("confirm-modal").classList.remove("show");
+  if (state.confirmResolve) state.confirmResolve(result);
+  state.confirmResolve = null;
+}
+
+async function runAction(action, name) {
+  const command = `docker ${DOCKER_VERB[action]} ${name}`;
+  if (CONFIRMS[action]) {
+    const [verb, text] = CONFIRMS[action];
+    if (!(await confirmDialog(`${verb} ${name}?`, text, command, verb))) return;
+  }
+  document.querySelectorAll(`.btn[data-name="${CSS.escape(name)}"]`).forEach((b) => { b.disabled = true; });
+  try {
+    const result = await api("/api/action", { method: "POST", body: JSON.stringify({ action, container: name }) });
+    toast(`${action[0].toUpperCase() + action.slice(1)}: ${name}`, `ran: ${result.command}`);
+  } catch (err) {
+    toast(`Couldn't ${action} ${name}`, err.message, true);
+  }
+  await loadTab("containers");
+  loadStats();
+}
+
+async function openLogs(name) {
+  state.logsTarget = name;
+  $("logs-title").textContent = `Logs · ${name}`;
+  $("logs-body").textContent = "Loading…";
+  $("logs-body").dataset.scrolled = "";
+  $("logs-modal").classList.add("show");
+  await refreshLogs();
+  scheduleLogs();
+}
+
+async function refreshLogs() {
+  const name = state.logsTarget;
+  if (!name) return;
+  const body = $("logs-body");
+  const atBottom = body.scrollTop + body.clientHeight >= body.scrollHeight - 40;
+  try {
+    const data = await api(`/api/logs?container=${encodeURIComponent(name)}&tail=${$("logs-tail").value}`);
+    if (state.logsTarget !== name) return;
+    $("logs-cmd").textContent = data.command;
+    body.textContent = data.logs || "(no output yet)";
+    if (atBottom || !body.dataset.scrolled) {
+      body.scrollTop = body.scrollHeight;
+      body.dataset.scrolled = "yes";
+    }
+  } catch (err) {
+    body.textContent = `Couldn't load logs: ${err.message}`;
+  }
+}
+
+function scheduleLogs() {
+  clearInterval(state.logsTimer);
+  if ($("logs-follow").checked && state.logsTarget) state.logsTimer = setInterval(refreshLogs, 3000);
+}
+
+function closeLogs() {
+  $("logs-modal").classList.remove("show");
+  clearInterval(state.logsTimer);
+  state.logsTarget = null;
+}
+
+async function copyText(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (_) {
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+  const label = button.textContent;
+  button.textContent = "Copied";
+  setTimeout(() => { button.textContent = label; }, 1200);
+}
+
+function schedule() {
+  clearInterval(state.timer);
+  clearInterval(state.statsTimer);
+  if (!$("auto").checked) return;
+  state.timer = setInterval(() => { if (!document.hidden) loadTab(); }, 5000);
+  state.statsTimer = setInterval(() => { if (!document.hidden) loadStats(); }, 10000);
+}
+
+// ---- events ------------------------------------------------------------------
+
+document.addEventListener("click", (event) => {
+  const el = event.target.closest("button");
+  if (!el) return;
+  if (el.dataset.tab) {
+    state.tab = el.dataset.tab;
+    render();
+    loadTab().then(loadStats);
+  } else if (el.dataset.action) {
+    runAction(el.dataset.action, el.dataset.name);
+  } else if (el.dataset.logs) {
+    openLogs(el.dataset.logs);
+  } else if (el.dataset.copy !== undefined) {
+    copyText(el.dataset.copy, el);
+  } else if (el.dataset.copyFrom) {
+    copyText($(el.dataset.copyFrom).textContent, el);
+  }
+});
+
+document.addEventListener("toggle", (event) => {
+  const details = event.target;
+  if (!details.matches || !details.matches("details.cmds")) return;
+  if (details.open) state.openCmds.add(details.dataset.name);
+  else state.openCmds.delete(details.dataset.name);
+}, true);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if ($("confirm-modal").classList.contains("show")) closeConfirm(false);
+  else if ($("logs-modal").classList.contains("show")) closeLogs();
+});
+
+$("filter").addEventListener("input", (event) => { state.filter = event.target.value; render(); });
+$("auto").addEventListener("change", schedule);
+$("refresh").addEventListener("click", () => loadTab().then(loadStats));
+$("confirm-ok").addEventListener("click", () => closeConfirm(true));
+$("confirm-cancel").addEventListener("click", () => closeConfirm(false));
+$("confirm-modal").addEventListener("click", (event) => { if (event.target === event.currentTarget) closeConfirm(false); });
+$("logs-close").addEventListener("click", closeLogs);
+$("logs-refresh").addEventListener("click", refreshLogs);
+$("logs-tail").addEventListener("change", refreshLogs);
+$("logs-follow").addEventListener("change", scheduleLogs);
+$("logs-modal").addEventListener("click", (event) => { if (event.target === event.currentTarget) closeLogs(); });
+
+(async function init() {
+  loadInfo();
+  await loadTab("containers");
+  loadStats();
+  for (const tab of TABS.slice(1)) loadTab(tab);
+  schedule();
+})();
+</script>
+</body>
+</html>

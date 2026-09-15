@@ -6,7 +6,6 @@ import argparse
 import html
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -15,6 +14,7 @@ from string import Template
 from urllib.parse import unquote
 
 from kitlib import KIT_HOME, die, style
+from kitlib.browser import find_browser
 
 try:
     from markdown_it import MarkdownIt
@@ -33,25 +33,6 @@ PAPER_SIZES = ["A4", "Letter", "Legal", "A3", "A5"]
 COLOR_RE = re.compile(r"#?[0-9a-fA-F]{3,8}|[a-zA-Z]+")
 # src values left alone when rewriting image paths: URLs with a scheme, absolute paths, anchors
 ABSOLUTE_SRC_RE = re.compile(r"^([a-zA-Z][\w+.-]*:|/|#)")
-
-BROWSER_PATHS = {
-    "windows": [
-        r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
-        r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe",
-        r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
-        r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
-        r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe",
-    ],
-    "macos": [
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-        "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    ],
-}
-BROWSER_COMMANDS = [
-    "chromium", "chromium-browser", "google-chrome", "google-chrome-stable",
-    "microsoft-edge", "microsoft-edge-stable", "msedge", "chrome",
-]
 
 PAGE = Template("""\
 <!DOCTYPE html>
@@ -216,23 +197,13 @@ def render_page(source: Path, accent: str, paper: str, image_base: Path | None) 
     return PAGE.substitute(title=html.escape(title), css=css, body=body)
 
 
-def find_browser(explicit: str | None) -> str:
+def pick_browser(explicit: str | None) -> str:
+    browser = find_browser(explicit)
+    if browser:
+        return browser
     choice = explicit or os.environ.get("KIT_BROWSER")
     if choice:
-        found = shutil.which(choice) or (choice if Path(choice).is_file() else None)
-        if not found:
-            die(f"browser not found: {choice}")
-        return found
-
-    platform = "windows" if os.name == "nt" else "macos" if sys.platform == "darwin" else "linux"
-    for candidate in BROWSER_PATHS.get(platform, []):
-        path = Path(os.path.expandvars(candidate))
-        if path.is_file():
-            return str(path)
-    for name in BROWSER_COMMANDS:
-        found = shutil.which(name)
-        if found:
-            return found
+        die(f"browser not found: {choice}")
     die("no Edge, Chrome or Chromium found for PDF output - install one, pass --browser PATH, or use --html")
 
 
@@ -306,7 +277,7 @@ def main() -> int:
         image_base = None if output.parent == source.parent else source.parent
         output.write_text(render_page(source, accent, args.paper, image_base), encoding="utf-8")
     else:
-        browser = find_browser(args.browser)
+        browser = pick_browser(args.browser)
         write_pdf(render_page(source, accent, args.paper, source.parent), output, browser)
 
     print(f"{style('wrote', 'bold', 'green')} {output}")

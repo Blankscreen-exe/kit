@@ -11,8 +11,12 @@ dependencies = [
     "markdown-it-py>=3.0",
     "mdit-py-plugins>=0.4",
     "pygments>=2.17",
-    # tools/fetch
+    # tools/fetch, tools/port
     "psutil>=5.9",
+    # tools/pomodoro
+    "textual>=0.80",
+    # tools/qr, tools/serve (via lib/kitlib/qr.py)
+    "segno>=1.6",
 ]
 
 [tool.uv]
