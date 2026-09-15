@@ -1,5 +1,0 @@
-title = "System Helper Script Aliases"
-
-[alises]
-shs-timediff = "time_diff.py"
-shs-timedurdiff = "time_duration_diff.py"

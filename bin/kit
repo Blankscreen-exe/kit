@@ -1,0 +1,24 @@
+#!/bin/sh
+# kit launcher for Linux/macOS. install.sh puts a small script on your PATH that runs this.
+# Symlinking this file onto PATH yourself works too; the loop below resolves the link.
+set -e
+
+self=$0
+while [ -L "$self" ]; do
+    target=$(readlink "$self")
+    case $target in
+        /*) self=$target ;;
+        *) self=$(dirname "$self")/$target ;;
+    esac
+done
+kit_home=$(cd "$(dirname "$self")/.." && pwd)
+
+if [ -n "${KIT_PYTHON:-}" ]; then
+    python=$KIT_PYTHON
+elif command -v python3 >/dev/null 2>&1; then
+    python=python3
+else
+    python=python
+fi
+
+exec "$python" "$kit_home/kit.py" "$@"

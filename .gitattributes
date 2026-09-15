@@ -1,0 +1,14 @@
+* text=auto
+
+# Shell scripts must keep LF endings or bash/sh will choke on them.
+*.sh        text eol=lf
+*.bash      text eol=lf
+bin/kit     text eol=lf
+
+# Windows scripts
+*.ps1       text eol=crlf
+*.cmd       text eol=crlf
+*.bat       text eol=crlf
+
+# Vendored binaries and font files: store as-is
+vendor/**   -text
