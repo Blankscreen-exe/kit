@@ -63,6 +63,13 @@ main { max-width: 1320px; margin: 0 auto; padding: 20px; }
 .meta dd { margin: 0; overflow-wrap: anywhere; }
 .mono { font-family: var(--mono); font-size: 12px; }
 .muted { color: var(--muted); }
+.ports { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.port { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.port-link { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border: 1px solid transparent; border-radius: 5px; padding: 0 7px; text-decoration: none; }
+.port-link:hover { border-color: var(--accent); }
+.port-link.non-web { color: var(--muted); background: var(--panel-2); font-weight: 400; }
+.port-link.non-web:hover { border-color: var(--border); }
+.port-target { font-size: 11.5px; }
 .meter { display: inline-block; vertical-align: middle; width: 90px; height: 6px; margin-left: 8px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
 .meter > span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -271,6 +278,26 @@ function shortPorts(ports) {
   return seen.join(", ");
 }
 
+function portsCell(c) {
+  const running = c.state === "running";
+  const items = (c.published || []).map((p) => {
+    const address = `${p.host}:${p.hostPort}`;
+    const target = `<span class="muted port-target">→ ${esc(p.containerPort)}${p.service ? ` · ${esc(p.service)}` : ""}</span>`;
+    if (!running) {
+      return `<span class="port"><span class="mono muted" title="Start the container to open it">${esc(address)}</span>${target}</span>`;
+    }
+    const title = p.service
+      ? `Port ${p.containerPort} is usually ${p.service}, which probably isn't a web page`
+      : `Open ${p.url} in a new tab`;
+    return `<span class="port"><a class="port-link${p.service ? " non-web" : ""}" href="${esc(p.url)}" target="_blank"
+      rel="noopener noreferrer" title="${esc(title)}">${esc(address)} ↗</a>${target}</span>`;
+  });
+  // Ports that aren't published TCP ports (internal-only or UDP) can't be opened, so list them as text.
+  const other = shortPorts(c.ports.split(", ").filter((part) => !part.includes("->") || !part.endsWith("/tcp")).join(", "));
+  if (other) items.push(`<span class="mono muted" title="Not a published TCP port">${esc(other)}</span>`);
+  return `<div class="ports">${items.join("")}</div>`;
+}
+
 function usage(c) {
   const s = state.stats[c.name];
   if (!s || c.state !== "running") return "";
@@ -310,7 +337,7 @@ function card(c) {
     <dl class="meta">
       <dt>Image</dt><dd class="mono">${esc(c.image)}</dd>
       <dt>Status</dt><dd>${esc(c.status)}</dd>
-      ${c.ports ? `<dt>Ports</dt><dd class="mono">${esc(shortPorts(c.ports))}</dd>` : ""}
+      ${c.ports ? `<dt>Ports</dt><dd>${portsCell(c)}</dd>` : ""}
       ${usage(c)}
     </dl>
     <div class="actions">${actionButtons(c)}</div>

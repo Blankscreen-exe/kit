@@ -10,6 +10,9 @@ kit docker-view [--port N] [--no-open]
 
 - Starts a small web server on `127.0.0.1` (port 9900, or the next free one) and opens it in your browser.
 - Containers are grouped by Docker Compose project and show status, health, image, ports, uptime and live CPU/memory.
+- Every TCP port a running container publishes to your computer is a link (e.g. `localhost:3000 ↗`) that opens
+  in a new tab. Ports of services that aren't web pages (Postgres, Redis, MySQL, ...) are still links but shown
+  muted, and ports of stopped containers are plain text.
 - Each container has Start/Stop, Restart, Pause/Unpause, Logs and Remove buttons. Stop and Remove ask first.
 - Every action reports the exact `docker ...` command it ran. Each card also lists copyable commands
   (`logs -f`, `exec -it <name> sh`, `inspect`, ...) so you can do the same from a terminal.

@@ -103,6 +103,55 @@ def health_of(status: str) -> str:
     return ""
 
 
+# One entry of `docker ps` Ports, e.g. "0.0.0.0:3000->3000/tcp", "[::]:9000-9001->9000-9001/tcp", "6379/tcp".
+PORT_RE = re.compile(
+    r"(?:(?P<ip>\[[0-9a-fA-F:]*\]|[0-9.]+):)?(?:(?P<host>\d+(?:-\d+)?)->)?(?P<container>\d+(?:-\d+)?)/(?P<proto>tcp|udp|sctp)"
+)
+MAX_PORT_RANGE = 20
+# Container ports whose services don't serve web pages; their links are shown muted.
+NON_WEB_PORTS = {
+    21: "ftp", 22: "ssh", 25: "smtp", 53: "dns", 1433: "sql server", 1521: "oracle", 3306: "mysql",
+    5432: "postgres", 5672: "rabbitmq", 6379: "redis", 9042: "cassandra", 9092: "kafka",
+    11211: "memcached", 27017: "mongodb",
+}
+LOOPBACK_OR_ANY = {"", "0.0.0.0", "::", "127.0.0.1", "::1"}
+
+
+def expand_ports(spec: str) -> list[int]:
+    start, _, end = spec.partition("-")
+    return list(range(int(start), int(end or start) + 1))
+
+
+def published_ports(ports: str) -> list[dict]:
+    """TCP ports published to the host, each with a URL to open it in a browser."""
+    published, seen = [], set()
+    for part in (p.strip() for p in ports.split(",")):
+        match = PORT_RE.fullmatch(part)
+        if not match or not match["host"] or match["proto"] != "tcp":
+            continue
+        host_ports, container_ports = expand_ports(match["host"]), expand_ports(match["container"])
+        if len(container_ports) == 1:
+            container_ports *= len(host_ports)
+        if len(host_ports) != len(container_ports) or len(host_ports) > MAX_PORT_RANGE:
+            continue
+        ip = (match["ip"] or "").strip("[]")
+        host = "localhost" if ip in LOOPBACK_OR_ANY else ip
+        url_host = f"[{host}]" if ":" in host else host
+        for host_port, container_port in zip(host_ports, container_ports):
+            if (host, host_port) in seen:
+                continue  # docker lists the same port once for IPv4 and once for IPv6
+            seen.add((host, host_port))
+            scheme = "https" if 443 in (container_port, host_port) or 8443 in (container_port, host_port) else "http"
+            published.append({
+                "host": host,
+                "hostPort": host_port,
+                "containerPort": container_port,
+                "url": f"{scheme}://{url_host}:{host_port}/",
+                "service": NON_WEB_PORTS.get(container_port, ""),
+            })
+    return published
+
+
 def list_containers() -> list[dict]:
     # Labels come back as one "k=v,k=v" string whose values can contain commas, so ask for the two we need.
     template = '{{json .}}\t{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}'
@@ -121,6 +170,7 @@ def list_containers() -> list[dict]:
             "status": status,
             "health": health_of(status),
             "ports": item.get("Ports", ""),
+            "published": published_ports(item.get("Ports", "")),
             "created": item.get("RunningFor", ""),
             "project": project.strip(),
             "service": service.strip(),
