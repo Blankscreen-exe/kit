@@ -6,8 +6,9 @@
 #   2. Adds a commented, clearly marked block to ~/.bashrc (and ~/.zshrc if present) that
 #      puts that folder on PATH, exports KIT_HOME and loads bash tab completion.
 #      Each file is backed up next to itself as <file>.kit-backup first.
+#   3. Runs 'uv sync' to create .venv with the Python packages tools need (pyproject.toml).
 #
-# Usage: ./install.sh [--dry-run] [--uninstall]
+# Usage: ./install.sh [--dry-run] [--uninstall]   (--uninstall undoes 1-2, leaves .venv)
 set -euo pipefail
 
 KIT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,7 +24,7 @@ for arg in "$@"; do
     case "$arg" in
         --uninstall) uninstall=1 ;;
         --dry-run) dry_run=1 ;;
-        -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
     esac
 done
@@ -141,15 +142,35 @@ if [ "$dry_run" = 1 ]; then note=' (dry run - nothing will be changed)'; else no
 echo
 echo "$verb kit from $KIT_HOME$note"
 
-if [ "$uninstall" = 0 ] && ! command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then
-    echo "warning: python3 not found - kit needs Python 3.10+ (or set KIT_PYTHON)" >&2
-fi
+sync_packages() {
+    # All tools share one uv environment (.venv in this repo), described by pyproject.toml.
+    if [ "$uninstall" = 1 ]; then
+        info "left $KIT_HOME/.venv in place (git-ignored; delete it by hand if you like)"
+        return
+    fi
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "warning: uv not found - install it (https://docs.astral.sh/uv/) and re-run; until then tools that need packages will fail" >&2
+        return
+    fi
+    change "install Python packages into .venv (uv sync)" uv_sync
+}
+
+uv_sync() {
+    # Antivirus or proxies that inspect HTTPS break uv's built-in certificates;
+    # retry trusting the system certificate store instead.
+    if uv sync --project "$KIT_HOME" --quiet; then
+        return
+    fi
+    info "uv sync failed; retrying with the system certificate store (--system-certs)"
+    uv sync --project "$KIT_HOME" --quiet --system-certs
+}
 
 update_launcher
 update_rc "$HOME/.bashrc"
 if [ -f "$HOME/.zshrc" ]; then
     update_rc "$HOME/.zshrc"
 fi
+sync_packages
 
 echo
 if [ "$dry_run" = 1 ]; then

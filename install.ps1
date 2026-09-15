@@ -3,15 +3,16 @@
     Hooks kit into Windows so the 'kit' command works in every terminal.
 
 .DESCRIPTION
-    Makes three changes. Each is safe to repeat:
+    Makes four changes. Each is safe to repeat:
       1. Appends this repo's bin folder to your user PATH.
          The previous PATH value is backed up to %LOCALAPPDATA%\kit\backups first.
       2. Sets the KIT_HOME user environment variable to this repo.
       3. Adds a commented, clearly marked block to your PowerShell profile that loads
          tab completion (shell\kit.ps1). The profile is backed up first.
+      4. Runs 'uv sync' to create .venv with the Python packages tools need (pyproject.toml).
 
     -DryRun  shows what would change without changing anything.
-    -Uninstall  removes all three.
+    -Uninstall  undoes 1-3 and leaves .venv in place.
 
 .EXAMPLE
     .\install.ps1 -DryRun
@@ -164,13 +165,32 @@ $note = if ($DryRun) { ' (dry run - nothing will be changed)' } else { '' }
 Write-Host ''
 Write-Host "$verb kit from $KitHome$note"
 
-if (-not $Uninstall -and -not (Get-Command python -ErrorAction SilentlyContinue)) {
-    Write-Warning 'python was not found on PATH. kit needs Python 3.10+ (or set KIT_PYTHON to a python.exe).'
+function Sync-Packages {
+    # All tools share one uv environment (.venv in this repo), described by pyproject.toml.
+    if ($Uninstall) {
+        Write-Info "left $KitHome\.venv in place (git-ignored; delete it by hand if you like)"
+        return
+    }
+    if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+        Write-Warning 'uv was not found. Install it (https://docs.astral.sh/uv/) and re-run; until then kit falls back to plain python and tools that need packages will fail.'
+        return
+    }
+    Invoke-Change 'install Python packages into .venv (uv sync)' {
+        & uv sync --project $KitHome --quiet
+        if ($LASTEXITCODE -ne 0) {
+            # Antivirus or proxies that inspect HTTPS break uv's built-in certificates;
+            # retry trusting the Windows certificate store instead.
+            Write-Info 'uv sync failed; retrying with the system certificate store (--system-certs)'
+            & uv sync --project $KitHome --quiet --system-certs
+            if ($LASTEXITCODE -ne 0) { throw 'uv sync failed - see the error above' }
+        }
+    }
 }
 
 Update-UserPath
 foreach ($profilePath in Get-ProfilePaths) { Update-Profile $profilePath }
 Update-KitHome
+Sync-Packages
 
 if (-not $DryRun) {
     # Apply to this session as well, so kit works without opening a new terminal.

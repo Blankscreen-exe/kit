@@ -7,11 +7,14 @@ from PowerShell, cmd, or a Linux/macOS shell.
 $ kit
 kit - personal toolbox
 
+  DOCS
+    md      md2pdf  Convert a Markdown file into a styled PDF or HTML page with coloured headings, highlighted code and tables.
+
   TEXT
-    banner     Render text as a big ASCII-art banner using figlet.
+    banner          Render text as a big ASCII-art banner using figlet.
 
   TIME
-    time    t  Time arithmetic for tracking hours: span between clock times, duration differences and totals.
+    time    t       Time arithmetic for tracking hours: span between clock times, duration differences and totals.
 
 run:       kit <tool> [args]      docs: kit help <tool>
 built-ins: list, help, new, doctor, path
@@ -19,7 +22,8 @@ built-ins: list, help, new, doctor, path
 
 ## Install
 
-Needs **Python 3.10+**. kit uses only the standard library, so there is nothing to `pip install`.
+Needs [**uv**](https://docs.astral.sh/uv/). It runs kit and its tools in one shared Python environment
+and fetches a suitable Python if you don't have one.
 
 **Windows (PowerShell)**
 
@@ -44,10 +48,11 @@ Then open a new terminal and run `kit`. To undo everything, use `.\install.ps1 -
 | Put `kit` on PATH | appends `bin\` to your **user PATH** | writes a two-line `kit` launcher into `~/.local/bin` |
 | `KIT_HOME` | user environment variable | exported from `~/.bashrc` / `~/.zshrc` |
 | Tab completion | commented block in your PowerShell profile | same block in `~/.bashrc` |
+| Python packages | `uv sync` creates `.venv\` in the repo | `uv sync` creates `.venv/` in the repo |
 | Backups | `%LOCALAPPDATA%\kit\backups\` | `<file>.kit-backup` |
 
 The shell block sits between `# >>> kit >>>` and `# <<< kit <<<` markers. Re-running the installer updates
-the block in place, and uninstalling removes only that block.
+the block in place, and uninstalling removes only that block. Uninstalling leaves `.venv` alone.
 
 ## Commands
 
@@ -57,7 +62,7 @@ the block in place, and uninstalling removes only that block.
 | `kit help <tool>` | Show the tool's README plus where it lives |
 | `kit <tool> [args]` | Run a tool; aliases work too (`kit t sum 1:30 2h`) |
 | `kit new <name> [--lang py\|ps1\|sh]` | Create a new tool folder from a template |
-| `kit doctor` | Check the install and every tool folder |
+| `kit doctor` | Check the install, the uv environment and every tool folder |
 | `kit path [tool]` | Print a folder, e.g. `code (kit path)` or `cd (kit path time)` |
 
 ## Adding a tool
@@ -80,13 +85,24 @@ kit looks for the first of these that exists, depending on the platform:
 
 | Platform | Looked for, in order | Run with |
 |---|---|---|
-| Windows | `main.py`, `main.ps1`, `main.cmd`, `main.bat`, `main.exe` | same Python as kit / PowerShell / cmd / directly |
-| Linux, macOS | `main.py`, `main.sh`, `main` | same Python as kit / bash / directly |
+| Windows | `main.py`, `main.ps1`, `main.cmd`, `main.bat`, `main.exe` | kit's Python / PowerShell / cmd / directly |
+| Linux, macOS | `main.py`, `main.sh`, `main` | kit's Python / bash / directly |
 
 A tool that has only `main.ps1` shows as Windows-only, and one with only `main.sh` as Linux/macOS-only.
 
 Tools receive `KIT_HOME`, `KIT_TOOL` and `KIT_TOOL_DIR` in their environment. Python tools can
 `from kitlib import KIT_HOME, style, error, warn, die` for coloured output and error handling.
+
+### Python packages
+
+The repo is a single uv project, and every Python tool runs in its one environment. If a tool needs a package,
+add it from the repo root and commit `pyproject.toml` and `uv.lock`:
+
+```sh
+uv add requests
+```
+
+Put a `# tools/<name>` comment above a tool's packages in `pyproject.toml` so it's clear which tool needs what.
 
 ### Docs
 
@@ -128,6 +144,7 @@ tools/            one folder per tool
 vendor/           bundled third-party binaries (figlet for Windows)
 bin/              launchers: kit.ps1 (PowerShell), kit.cmd (cmd), kit (sh)
 shell/            tab completion for PowerShell and bash
+pyproject.toml    the Python packages tools use (uv.lock pins exact versions)
 install.ps1       Windows installer / uninstaller
 install.sh        Linux/macOS installer / uninstaller
 ```
@@ -136,6 +153,7 @@ install.sh        Linux/macOS installer / uninstaller
 
 | Variable | Purpose |
 |---|---|
-| `KIT_PYTHON` | Python interpreter the launchers use (default `python` on Windows, `python3` elsewhere) |
+| `KIT_PYTHON` | Skip uv and run kit with this Python interpreter instead |
 | `KIT_PATH` | Extra folders to load tools from |
+| `KIT_BROWSER` | Browser the `md` tool uses to print PDFs |
 | `NO_COLOR` | Turn off coloured output |

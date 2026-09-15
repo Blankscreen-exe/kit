@@ -213,6 +213,14 @@ def cmd_doctor(args: list[str]) -> int:
     report("ok" if sys.version_info >= (3, 10) else "fail", f"python {sys.version.split()[0]}  ({sys.executable})")
     report("ok", f"kit home  {KIT_HOME}")
 
+    venv = KIT_HOME / ".venv"
+    if not shutil.which("uv"):
+        report("warn", "uv not found - tools that need packages from pyproject.toml will fail (https://docs.astral.sh/uv/)")
+    elif _same_path(Path(sys.prefix).resolve(), venv.resolve()):
+        report("ok", f"uv environment  {venv}")
+    else:
+        report("warn", f"not running in the repo's uv environment ({venv}) - is KIT_PYTHON set? try 'uv sync' in {KIT_HOME}")
+
     found = shutil.which("kit")
     if found and _same_path(Path(found).resolve().parent, (KIT_HOME / "bin").resolve()):
         report("ok", f"'kit' is on PATH  ({found})")

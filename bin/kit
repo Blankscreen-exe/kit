@@ -13,12 +13,14 @@ while [ -L "$self" ]; do
 done
 kit_home=$(cd "$(dirname "$self")/.." && pwd)
 
+# Run inside the repo's uv environment so tools can use the packages in pyproject.toml.
+# KIT_PYTHON skips uv and uses that interpreter directly.
 if [ -n "${KIT_PYTHON:-}" ]; then
-    python=$KIT_PYTHON
+    exec "$KIT_PYTHON" "$kit_home/kit.py" "$@"
+elif command -v uv >/dev/null 2>&1; then
+    exec uv run --quiet --project "$kit_home" python "$kit_home/kit.py" "$@"
 elif command -v python3 >/dev/null 2>&1; then
-    python=python3
+    exec python3 "$kit_home/kit.py" "$@"
 else
-    python=python
+    exec python "$kit_home/kit.py" "$@"
 fi
-
-exec "$python" "$kit_home/kit.py" "$@"

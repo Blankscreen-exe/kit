@@ -1,0 +1,18 @@
+[project]
+name = "kit"
+version = "0.1.0"
+description = "Personal terminal toolbox: one command to list, document and run day-to-day tools."
+readme = "README.md"
+requires-python = ">=3.10"
+# Every tool shares this one uv environment (.venv in the repo root).
+# Add a package with:  uv add <package>   (run from the repo root)
+dependencies = [
+    # tools/md
+    "markdown-it-py>=3.0",
+    "mdit-py-plugins>=0.4",
+    "pygments>=2.17",
+]
+
+[tool.uv]
+# kit is a collection of scripts, not an installable package
+package = false
