@@ -1,0 +1,6 @@
+{
+  "category": "network",
+  "settings": {
+    "flush": {"type": "bool", "default": true, "help": "Flush the DNS cache after every change to the system hosts file"}
+  }
+}
