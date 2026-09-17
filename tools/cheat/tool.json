@@ -1,0 +1,9 @@
+{
+  "category": "docs",
+  "aliases": ["cheatsheet"],
+  "settings": {
+    "site": {"type": "choice", "choices": ["ss64", "tldr"], "default": "ss64", "help": "Cheatsheet site: ss64 (full reference) or tldr (short practical examples)"},
+    "topic": {"type": "choice", "choices": ["auto", "ps", "bash", "cmd", "mac"], "default": "auto", "help": "Topic when you don't name one (auto: PowerShell on Windows, bash on Linux, mac on macOS)"},
+    "window": {"type": "bool", "default": false, "help": "Open pages in their own app window instead of a browser tab"}
+  }
+}
