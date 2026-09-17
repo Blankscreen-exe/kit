@@ -24,6 +24,16 @@ kit dev secret [--length N] [--chars alnum|hex|symbols|url]
   An ISO date without an offset is treated as local time. `--copy` copies the converted value.
 - `json` points at the line and column of the first error in invalid JSON.
 
+## Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| `dev.secret_length` | `32` | Length `secret` uses when you don't pass `--length` (1-4096) |
+
+```
+kit config set dev.secret_length 48
+```
+
 ## Examples
 
 ```

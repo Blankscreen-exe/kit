@@ -7,11 +7,8 @@ import base64
 import binascii
 import hashlib
 import json
-import os
 import secrets
-import shutil
 import string
-import subprocess
 import sys
 import time
 import urllib.parse
@@ -20,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from kitlib import die, style, warn
+from kitlib.clipboard import copy_to_clipboard
+from kitlib.settings import tool_settings
 
 HASH_ALGOS = ["md5", "sha1", "sha256", "sha512"]
 SECRET_CHARSETS = {
@@ -282,80 +281,6 @@ def cmd_secret(args: argparse.Namespace) -> Result:
     return Result("".join(secrets.choice(alphabet) for _ in range(args.length)))
 
 
-# --- clipboard -----------------------------------------------------------------
-
-def copy_windows(text: str) -> bool:
-    """Put Unicode text on the Windows clipboard through the Win32 API (clip.exe mangles non-ASCII)."""
-    import ctypes
-    from ctypes import wintypes
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
-    kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
-    kernel32.GlobalAlloc.restype = wintypes.HANDLE
-    kernel32.GlobalLock.argtypes = [wintypes.HANDLE]
-    kernel32.GlobalLock.restype = ctypes.c_void_p
-    kernel32.GlobalUnlock.argtypes = [wintypes.HANDLE]
-    kernel32.GlobalFree.argtypes = [wintypes.HANDLE]
-    user32.OpenClipboard.argtypes = [wintypes.HWND]
-    user32.OpenClipboard.restype = wintypes.BOOL
-    user32.EmptyClipboard.restype = wintypes.BOOL
-    user32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
-    user32.SetClipboardData.restype = wintypes.HANDLE
-    user32.CloseClipboard.restype = wintypes.BOOL
-
-    data = (text + "\0").encode("utf-16-le")
-    handle = kernel32.GlobalAlloc(0x0002, len(data))  # GMEM_MOVEABLE
-    if not handle:
-        return False
-    pointer = kernel32.GlobalLock(handle)
-    if not pointer:
-        kernel32.GlobalFree(handle)
-        return False
-    ctypes.memmove(pointer, data, len(data))
-    kernel32.GlobalUnlock(handle)
-
-    for _ in range(20):  # another program may be holding the clipboard for a moment
-        if user32.OpenClipboard(None):
-            break
-        time.sleep(0.05)
-    else:
-        kernel32.GlobalFree(handle)
-        return False
-    try:
-        user32.EmptyClipboard()
-        if not user32.SetClipboardData(13, handle):  # CF_UNICODETEXT
-            kernel32.GlobalFree(handle)
-            return False
-        return True  # the clipboard owns the memory now
-    finally:
-        user32.CloseClipboard()
-
-
-def copy_to_clipboard(text: str) -> bool:
-    try:
-        if os.name == "nt":
-            return copy_windows(text)
-        candidates = []
-        if sys.platform == "darwin" and shutil.which("pbcopy"):
-            candidates.append(["pbcopy"])
-        if os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-copy"):
-            candidates.append(["wl-copy"])
-        if shutil.which("xclip"):
-            candidates.append(["xclip", "-selection", "clipboard"])
-        if shutil.which("xsel"):
-            candidates.append(["xsel", "--clipboard", "--input"])
-        for command in candidates:
-            try:
-                subprocess.run(command, input=text.encode("utf-8"), check=True, timeout=5)
-                return True
-            except (subprocess.SubprocessError, OSError):
-                continue
-    except OSError:
-        pass
-    return False
-
-
 # --- main ----------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
@@ -406,7 +331,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(handler=cmd_url)
 
     p = commands.add_parser("secret", parents=[common], help="generate a secure random string")
-    p.add_argument("--length", type=int, default=32, help="length (default: 32)")
+    p.add_argument("--length", type=int, default=tool_settings().get("secret_length", 32),
+                   help="length (setting: dev.secret_length, default: 32)")
     p.add_argument("--chars", choices=list(SECRET_CHARSETS), default="alnum", help="character set (default: alnum)")
     p.set_defaults(handler=cmd_secret)
     return parser

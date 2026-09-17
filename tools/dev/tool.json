@@ -1,3 +1,6 @@
 {
-  "category": "dev"
+  "category": "dev",
+  "settings": {
+    "secret_length": {"type": "int", "default": 32, "min": 1, "max": 4096, "help": "Default length for 'kit dev secret'"}
+  }
 }
