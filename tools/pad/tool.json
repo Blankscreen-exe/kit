@@ -1,0 +1,11 @@
+{
+  "category": "productivity",
+  "aliases": ["scratch", "note"],
+  "interactive": true,
+  "settings": {
+    "default": {"type": "string", "default": "scratch", "help": "Pad that opens when you don't give a name"},
+    "autosave": {"type": "bool", "default": true, "help": "Save as you type; when off, ctrl+s saves and quitting asks about unsaved text"},
+    "wrap": {"type": "bool", "default": true, "help": "Wrap long lines to the window width"},
+    "line_numbers": {"type": "bool", "default": false, "help": "Show line numbers"}
+  }
+}
