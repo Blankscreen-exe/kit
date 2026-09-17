@@ -25,4 +25,29 @@
     }.GetNewClosure()
 
     Register-ArgumentCompleter -Native -CommandName 'kit', 'kit.ps1', 'kit.cmd' -ScriptBlock $completer
+
+    # A kit function that runs the launcher unchanged, except that 'kit env set|unset|path' also
+    # updates this terminal: the tool writes PowerShell commands to the temp file named in
+    # KIT_ENV_APPLY, and they run here once it finishes.
+    $wrapper = {
+        $apply = $null
+        if ($args.Count -ge 2 -and $args[0] -eq 'env' -and $args[1] -in @('set', 'unset', 'path')) {
+            $apply = [IO.Path]::GetTempFileName()
+            $env:KIT_ENV_APPLY = $apply
+            $env:KIT_ENV_SHELL = 'powershell'
+        }
+        try {
+            if ($MyInvocation.ExpectingInput) { $input | & $launcher @args } else { & $launcher @args }
+        } finally {
+            if ($apply) {
+                $code = $LASTEXITCODE
+                Remove-Item Env:KIT_ENV_APPLY, Env:KIT_ENV_SHELL -ErrorAction SilentlyContinue
+                $commands = [IO.File]::ReadAllText($apply)
+                Remove-Item -LiteralPath $apply -ErrorAction SilentlyContinue
+                if ($commands.Trim()) { Invoke-Expression $commands }
+                $global:LASTEXITCODE = $code
+            }
+        }
+    }.GetNewClosure()
+    Set-Item -Path Function:global:kit -Value $wrapper
 }

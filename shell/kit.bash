@@ -17,3 +17,19 @@ _kit_complete() {
 }
 
 complete -o default -F _kit_complete kit
+
+# Runs kit unchanged, except that 'kit env set|unset|path' also updates this shell: the tool writes
+# export/unset commands to the temp file named in KIT_ENV_APPLY, and they're sourced once it finishes.
+kit() {
+    case "${1-} ${2-}" in
+        "env set" | "env unset" | "env path") ;;
+        *) command kit "$@"; return ;;
+    esac
+    local __kit_apply __kit_status
+    __kit_apply=$(mktemp "${TMPDIR:-/tmp}/kit-env.XXXXXX") || { command kit "$@"; return; }
+    KIT_ENV_APPLY=$__kit_apply KIT_ENV_SHELL=bash command kit "$@"
+    __kit_status=$?
+    if [ -s "$__kit_apply" ]; then . "$__kit_apply"; fi
+    rm -f "$__kit_apply"
+    return "$__kit_status"
+}
