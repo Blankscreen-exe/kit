@@ -1,4 +1,9 @@
 {
   "category": "dev",
-  "aliases": ["dv"]
+  "aliases": ["dv"],
+  "web": true,
+  "settings": {
+    "port": {"type": "int", "default": 9900, "min": 1, "max": 65535, "help": "Port to try first (the next free one is used if it's taken)"},
+    "open": {"type": "bool", "default": true, "help": "Open the dashboard in your browser when it starts"}
+  }
 }

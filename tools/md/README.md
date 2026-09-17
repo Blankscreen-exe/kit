@@ -11,7 +11,7 @@ kit md <file.md> [-o OUTPUT] [--html] [--open] [--accent COLOR] [--paper SIZE] [
 - PDF is the default, written next to the input (`notes.md` -> `notes.pdf`).
 - `--html` (or `-o something.html`) writes a standalone HTML page instead, for viewing in a browser.
 - PDFs are printed by headless Microsoft Edge, Google Chrome or Chromium, found automatically.
-  Pass `--browser PATH` or set `KIT_BROWSER` to pick one.
+  Pass `--browser PATH`, or set `kit.browser` (or `KIT_BROWSER`), to pick one.
 - `--accent` colours the main headings, links, table headers and code-block edges (default `#1f6feb`).
   Lower-level headings each get their own colour.
 - `--paper`: `A4` (default), `Letter`, `Legal`, `A3` or `A5`.
@@ -19,6 +19,19 @@ kit md <file.md> [-o OUTPUT] [--html] [--open] [--accent COLOR] [--paper SIZE] [
 
 Supports CommonMark plus tables, strikethrough, task lists, footnotes and syntax-highlighted code blocks.
 YAML front matter at the top of the file is skipped.
+
+## Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| `md.accent` | `#1f6feb` | Colour of main headings, links and table headers |
+| `md.paper` | `A4` | Page size for PDFs: `A4`, `Letter`, `Legal`, `A3` or `A5` |
+| `kit.browser` | *(found automatically)* | Browser that prints PDFs. `$KIT_BROWSER` overrides it. |
+
+```
+kit config set md.paper Letter
+kit config set md.accent "#c2410c"
+```
 
 ## Examples
 

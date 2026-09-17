@@ -48,6 +48,16 @@ Categories, when the tool or folder exists on this machine:
 
 On Linux, `temp` only counts files in `/tmp` and `/var/tmp` that belong to you.
 
+## Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| `clean.older_than` | `2` | Temp files must be at least this many days old (`--older-than` overrides it) |
+
+```
+kit config set clean.older_than 7
+```
+
 ## Examples
 
 ```

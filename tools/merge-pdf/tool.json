@@ -1,3 +1,10 @@
 {
-  "category": "docs"
+  "category": "docs",
+  "web": true,
+  "settings": {
+    "page": {"type": "choice", "choices": ["fit", "a4", "letter"], "default": "fit", "help": "Page size: fit each image, A4 or Letter"},
+    "margin": {"type": "choice", "choices": ["none", "small", "medium"], "default": "small", "help": "Margin on A4/Letter pages"},
+    "quality": {"type": "choice", "choices": ["high", "small"], "default": "high", "help": "Image quality: high, or small for a smaller file"},
+    "open": {"type": "bool", "default": true, "help": "Open the arranging page in your browser when it starts"}
+  }
 }

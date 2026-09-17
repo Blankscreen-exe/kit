@@ -19,6 +19,8 @@ dependencies = [
     "segno>=1.6",
     # tools/merge-pdf
     "pillow>=10",
+    # kit core: writing the settings file (lib/kitlib/settings.py)
+    "tomlkit>=0.12",
 ]
 
 [tool.uv]

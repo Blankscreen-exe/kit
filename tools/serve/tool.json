@@ -1,4 +1,10 @@
 {
   "category": "network",
-  "aliases": ["share"]
+  "aliases": ["share"],
+  "web": true,
+  "settings": {
+    "port": {"type": "int", "default": 8000, "min": 1, "max": 65535, "help": "Port to try first (the next free one is used if it's taken)"},
+    "host": {"type": "string", "default": "0.0.0.0", "help": "Address to listen on: 0.0.0.0 = every network, 127.0.0.1 = this computer only"},
+    "window": {"type": "bool", "default": false, "help": "Also open the page in its own app window"}
+  }
 }

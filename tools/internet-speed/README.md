@@ -21,6 +21,17 @@ kit internet-speed ping <host> [-p PORT] [-n COUNT] [-t TIMEOUT]
 - A certificate or TLS error usually means antivirus HTTPS scanning (such as Avast's Web Shield) or a proxy is
   intercepting the connection.
 
+## Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| `internet-speed.quick` | `false` | Always run the quick test (`--quick` / `--full`) |
+| `internet-speed.ping_port` | `443` | Port `ping` connects to when you don't pass `-p` |
+
+```
+kit config set internet-speed.quick true
+```
+
 ## Examples
 
 ```

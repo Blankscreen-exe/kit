@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from kitlib import die, error, style, warn
+from kitlib.settings import tool_settings
 
 SUBCOMMANDS = ("list", "add", "remove", "show", "keys")
 MARKER = "# added by kit ssh"
@@ -37,7 +38,7 @@ commands:
   keys                              list your public keys and which hosts use them
 
 options:
-  --config PATH                     use another config file (or set KIT_SSH_CONFIG)
+  --config PATH                     use another config file (or the ssh.config setting / KIT_SSH_CONFIG)
 """
 
 
@@ -417,7 +418,7 @@ def main() -> int:
         print(HELP)
         return 0
 
-    chosen = config_arg or os.environ.get("KIT_SSH_CONFIG")
+    chosen = config_arg or tool_settings().get("config") or None  # the setting already includes $KIT_SSH_CONFIG
     config = Path(chosen).expanduser() if chosen else ssh_dir() / "config"
     custom = bool(chosen)
     notes: list[str] = []

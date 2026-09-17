@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 from kitlib import KIT_HOME, die, style, warn
+from kitlib.settings import tool_settings
 
 try:
     import psutil
@@ -44,12 +45,16 @@ def port_in_use(port: int) -> bool:
         return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
+# First port tried when --port isn't given; main() sets it from the serve.port setting.
+start_port = DEFAULT_PORT
+
+
 def candidate_ports(requested: int | None) -> list[int]:
-    return [requested] if requested else list(range(DEFAULT_PORT, DEFAULT_PORT + PORT_SEARCH))
+    return [requested] if requested else list(range(start_port, start_port + PORT_SEARCH))
 
 
 def no_free_port() -> None:
-    die(f"no free port between {DEFAULT_PORT} and {DEFAULT_PORT + PORT_SEARCH - 1} - pick one with --port")
+    die(f"no free port between {start_port} and {start_port + PORT_SEARCH - 1} - pick one with --port")
 
 
 def lan_addresses() -> list[tuple[str, str]]:
@@ -278,14 +283,22 @@ def main() -> int:
     except (AttributeError, ValueError):
         pass
 
+    global start_port
+    conf = tool_settings()
+    start_port = conf.get("port", DEFAULT_PORT)
+
     parser = argparse.ArgumentParser(prog="kit serve", description="Share a folder or a local app with devices on your network.")
     parser.add_argument("folder", nargs="?", default=".", help="folder to share (default: current folder)")
     parser.add_argument("--app", type=int, metavar="PORT", help="share the app running on localhost:PORT instead of a folder")
-    parser.add_argument("-p", "--port", type=int, help=f"port to listen on (default: {DEFAULT_PORT} or the next free one)")
-    parser.add_argument("--host", default="0.0.0.0", help="address to listen on (default: 0.0.0.0 = every network; 127.0.0.1 = this computer only)")
-    parser.add_argument("--window", action="store_true", help="also open the page in its own app window")
+    parser.add_argument("-p", "--port", type=int,
+                        help=f"port to listen on (default: the serve.port setting or {DEFAULT_PORT}, or the next free one)")
+    parser.add_argument("--host", default=conf.get("host", "0.0.0.0"),
+                        help="address to listen on: 0.0.0.0 = every network, 127.0.0.1 = this computer only (setting: serve.host)")
+    parser.add_argument("--window", action="store_true", help="also open the page in its own app window (setting: serve.window)")
+    parser.add_argument("--no-window", dest="window", action="store_false", help="don't open an app window")
     parser.add_argument("--no-qr", action="store_true", help="don't print a QR code")
     parser.add_argument("--print-window-command", action="store_true", help=argparse.SUPPRESS)  # for testing --window
+    parser.set_defaults(window=conf.get("window", False))
     args = parser.parse_args()
 
     for name in ("port", "app"):

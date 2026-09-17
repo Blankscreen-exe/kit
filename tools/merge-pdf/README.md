@@ -31,6 +31,21 @@ Security: the page is only reachable from this computer and needs the one-time t
 terminal. It only reads the files you passed or dropped onto the page. Dropped files go to a temporary folder
 that's deleted when merge-pdf stops (Done or Ctrl+C).
 
+## Settings
+
+The page starts with these, and `--no-ui` uses them unless you pass the matching flag.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `merge-pdf.page` | `fit` | Page size: `fit` each image, `a4` or `letter` |
+| `merge-pdf.margin` | `small` | Margin on A4/Letter pages: `none`, `small` or `medium` |
+| `merge-pdf.quality` | `high` | `high`, or `small` for a smaller file |
+| `merge-pdf.open` | `true` | Open the page in your browser when it starts (`--open` / `--no-open`) |
+
+```
+kit config set merge-pdf.page a4
+```
+
 ## Examples
 
 ```

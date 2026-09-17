@@ -1,3 +1,6 @@
 {
-  "category": "utils"
+  "category": "utils",
+  "settings": {
+    "invert": {"type": "bool", "default": false, "help": "Swap dark and light (for light terminals without colour)"}
+  }
 }

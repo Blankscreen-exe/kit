@@ -1,3 +1,6 @@
 {
-  "category": "network"
+  "category": "network",
+  "settings": {
+    "config": {"type": "string", "default": "", "env": "KIT_SSH_CONFIG", "help": "SSH config file to read and edit (empty: ~/.ssh/config)"}
+  }
 }

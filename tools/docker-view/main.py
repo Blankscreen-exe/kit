@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from kitlib import die, style, warn
+from kitlib.settings import tool_settings
 
 PAGE = Path(__file__).resolve().parent / "page.html"
 DEFAULT_PORT = 9900
@@ -454,8 +455,12 @@ def start_server(port: int, explicit: bool, token: str) -> DashboardServer:
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="kit docker-view", description="Local web dashboard for Docker containers, images, volumes and networks.")
-    parser.add_argument("--port", type=int, help=f"port to listen on (default: {DEFAULT_PORT}, or the next free one)")
-    parser.add_argument("--no-open", action="store_true", help="don't open the dashboard in your browser")
+    parser.add_argument("--port", type=int,
+                        help=f"port to listen on (default: the docker-view.port setting or {DEFAULT_PORT}, or the next free one)")
+    parser.add_argument("--no-open", dest="open", action="store_false", help="don't open the dashboard in your browser (setting: docker-view.open)")
+    parser.add_argument("--open", dest="open", action="store_true", help="open the dashboard in your browser")
+    conf = tool_settings()
+    parser.set_defaults(open=conf.get("open", True))
     args = parser.parse_args()
 
     if not shutil.which("docker"):
@@ -468,12 +473,12 @@ def main() -> int:
         engine = "Docker not reachable yet"
 
     token = secrets.token_urlsafe(24)
-    server = start_server(args.port or DEFAULT_PORT, args.port is not None, token)
+    server = start_server(args.port or conf.get("port", DEFAULT_PORT), args.port is not None, token)
     url = f"http://127.0.0.1:{server.server_address[1]}/?token={token}"
     print(f"{style('docker-view', 'bold', 'cyan')}  {engine}")
     print(f"  open  {style(url, 'bold')}")
     print(style("  only reachable from this computer - press Ctrl+C to stop", "dim"), flush=True)
-    if not args.no_open:
+    if args.open:
         webbrowser.open(url)
 
     try:

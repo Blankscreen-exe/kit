@@ -14,7 +14,8 @@ from string import Template
 from urllib.parse import unquote
 
 from kitlib import KIT_HOME, die, style
-from kitlib.browser import find_browser
+from kitlib.browser import configured_browser, find_browser
+from kitlib.settings import tool_settings
 
 try:
     from markdown_it import MarkdownIt
@@ -201,7 +202,7 @@ def pick_browser(explicit: str | None) -> str:
     browser = find_browser(explicit)
     if browser:
         return browser
-    choice = explicit or os.environ.get("KIT_BROWSER")
+    choice = explicit or configured_browser()
     if choice:
         die(f"browser not found: {choice}")
     die("no Edge, Chrome or Chromium found for PDF output - install one, pass --browser PATH, or use --html")
@@ -249,14 +250,18 @@ def open_file(path: Path) -> None:
 
 
 def main() -> int:
+    conf = tool_settings()
     parser = argparse.ArgumentParser(prog="kit md", description="Convert a Markdown file into a styled PDF or HTML page.")
     parser.add_argument("input", type=Path, help="Markdown file to convert")
     parser.add_argument("-o", "--output", type=Path, help="output file (default: next to the input, same name)")
     parser.add_argument("--html", action="store_true", help="write an HTML page instead of a PDF (implied by -o *.html)")
     parser.add_argument("--open", action="store_true", help="open the result when done")
-    parser.add_argument("--accent", default="#1f6feb", help="colour of main headings, links and table headers (default: #1f6feb)")
-    parser.add_argument("--paper", default="A4", choices=PAPER_SIZES, help="page size for PDF output (default: A4)")
-    parser.add_argument("--browser", help="Edge/Chrome/Chromium executable for PDF output (default: auto-detect, or $KIT_BROWSER)")
+    parser.add_argument("--accent", default=conf.get("accent", "#1f6feb"),
+                        help="colour of main headings, links and table headers (setting: md.accent, default: #1f6feb)")
+    parser.add_argument("--paper", default=conf.get("paper", "A4"), choices=PAPER_SIZES,
+                        help="page size for PDF output (setting: md.paper, default: A4)")
+    parser.add_argument("--browser",
+                        help="Edge/Chrome/Chromium executable for PDF output (default: the kit.browser setting / $KIT_BROWSER, else auto-detect)")
     args = parser.parse_args()
 
     source = args.input.expanduser().resolve()

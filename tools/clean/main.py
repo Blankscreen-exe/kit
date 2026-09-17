@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 from kitlib import die, error, style, warn
+from kitlib.settings import tool_settings
 
 SAFE = "safe"
 REDOWNLOAD = "re-downloads"
@@ -892,7 +893,7 @@ def main() -> int:
     if args.command == "big":
         return cmd_big(args)
 
-    older_than = getattr(args, "older_than", 2.0)
+    older_than = getattr(args, "older_than", tool_settings().get("older_than", 2.0))
     if older_than < 0:
         die("--older-than can't be negative")
     test_root = getattr(args, "test_root", None)

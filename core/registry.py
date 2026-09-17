@@ -3,7 +3,8 @@
 A tool folder holds:
   main.py | main.ps1 | main.sh | ...   the entry point, found by name
   README.md                            its docs; the first paragraph line becomes the summary
-  tool.json                            optional: summary, category, aliases, entry, platforms
+  tool.json                            optional: summary, category, aliases, entry, platforms,
+                                       settings, interactive, web
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from kitlib.settings import check_spec
 
 KIT_HOME = Path(__file__).resolve().parent.parent
 TOOLS_DIR = KIT_HOME / "tools"
@@ -35,6 +38,9 @@ _FIELDS: dict[str, type | tuple[type, ...]] = {
     "aliases": list,
     "entry": (str, dict),
     "platforms": list,
+    "settings": dict,     # settings the tool reads from the kit settings file (see kitlib.settings)
+    "interactive": bool,  # a full-screen terminal app (can't run inside kit hub)
+    "web": bool,          # starts a local web page (kit hub offers a Launch button)
 }
 
 
@@ -70,6 +76,9 @@ class Tool:
     aliases: list[str] = field(default_factory=list)
     entry: str | dict[str, str] | None = None
     platforms: list[str] = field(default_factory=lambda: list(PLATFORMS))
+    settings: dict[str, dict] = field(default_factory=dict)
+    interactive: bool = False
+    web: bool = False
 
     @property
     def readme(self) -> Path | None:
@@ -130,6 +139,10 @@ def _read_manifest(path: Path) -> dict:
         raise ToolError(f"{path}: unknown platform(s) {', '.join(bad_platforms)}")
     if isinstance(data.get("entry"), dict) and not all(isinstance(v, str) for v in data["entry"].values()):
         raise ToolError(f"{path}: 'entry' map values must be file names")
+    for key, spec in data.get("settings", {}).items():
+        problem = check_spec(key, spec)
+        if problem:
+            raise ToolError(f"{path}: {problem}")
     return data
 
 

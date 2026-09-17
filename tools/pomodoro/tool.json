@@ -1,4 +1,11 @@
 {
   "category": "productivity",
-  "aliases": ["pomo"]
+  "aliases": ["pomo"],
+  "interactive": true,
+  "settings": {
+    "focus": {"type": "int", "default": 25, "min": 1, "max": 240, "help": "Focus session length in minutes"},
+    "short": {"type": "int", "default": 5, "min": 1, "max": 120, "help": "Short break in minutes"},
+    "long": {"type": "int", "default": 15, "min": 1, "max": 240, "help": "Long break in minutes"},
+    "every": {"type": "int", "default": 4, "min": 1, "max": 12, "help": "Take the long break after this many focus sessions"}
+  }
 }

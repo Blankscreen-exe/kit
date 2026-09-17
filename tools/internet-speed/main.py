@@ -21,6 +21,7 @@ import time  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
 
 from kitlib import die, error, style  # noqa: E402
+from kitlib.settings import tool_settings  # noqa: E402
 
 HOST = "speed.cloudflare.com"
 TIMEOUT = 20.0
@@ -395,7 +396,8 @@ def run_speed_test(args: argparse.Namespace) -> int:
 def ping_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="kit internet-speed ping", description="Time TCP connections to a host (no admin rights needed).")
     parser.add_argument("host", help="host name or IP address")
-    parser.add_argument("-p", "--port", type=int, default=443, help="TCP port to connect to (default: 443)")
+    parser.add_argument("-p", "--port", type=int, default=tool_settings().get("ping_port", 443),
+                        help="TCP port to connect to (setting: internet-speed.ping_port, default: 443)")
     parser.add_argument("-n", "--count", type=int, default=4, help="number of connections (default: 4)")
     # 3 s rather than 2: Windows retries a refused connection for about 2 s before reporting it.
     parser.add_argument("-t", "--timeout", type=float, default=3.0, help="seconds to wait for each connection (default: 3)")
@@ -465,12 +467,14 @@ def main() -> int:
         description="Test latency, jitter, download and upload speed against Cloudflare.",
         epilog="Also: kit internet-speed ping <host> [-p PORT] [-n COUNT] - time TCP connections to any host.",
     )
-    parser.add_argument("--quick", action="store_true", help="smaller transfers, done in a few seconds")
+    parser.add_argument("--quick", action="store_true", help="smaller transfers, done in a few seconds (setting: internet-speed.quick)")
+    parser.add_argument("--full", dest="quick", action="store_false", help="full-size transfers, even when the quick setting is on")
     direction = parser.add_mutually_exclusive_group()
     direction.add_argument("--download-only", action="store_true", help="skip the upload test")
     direction.add_argument("--upload-only", action="store_true", help="skip the download test")
     parser.add_argument("--json", action="store_true", help="print machine-readable results only")
     parser.add_argument("--show-ip", action="store_true", help="include your public IP address")
+    parser.set_defaults(quick=tool_settings().get("quick", False))
     return run_speed_test(parser.parse_args(argv))
 
 

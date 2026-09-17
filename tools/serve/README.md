@@ -32,6 +32,18 @@ Some dev servers only answer requests addressed to `localhost` and reject others
 "blocked request" error. Allow other hosts in the app's own settings, for example Vite: `server.allowedHosts: true`,
 webpack-dev-server: `allowedHosts: 'all'`, Django: add the network IP to `ALLOWED_HOSTS`.
 
+## Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| `serve.port` | `8000` | Port to try first; the next free one is used if it's taken. `-p` asks for exactly one port. |
+| `serve.host` | `0.0.0.0` | Address to listen on. `127.0.0.1` keeps everything private to this computer. |
+| `serve.window` | `false` | Also open the page in an app window (`--window` / `--no-window`) |
+
+```
+kit config set serve.host 127.0.0.1
+```
+
 ## Examples
 
 ```

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import importlib
 import os
 import shutil
 import sys
@@ -21,8 +22,20 @@ BUILTINS = {
     "new": ("<name> [--lang py|ps1|sh]", "create a new tool folder from a template"),
     "doctor": ("", "check the install and every tool folder"),
     "path": ("[tool]", "print kit's folder, or a tool's folder"),
+    "config": ("[list|get|set|unset|edit|path]", "view and change settings for kit and its tools"),
+    "update": ("[--check]", "update kit from GitHub, then sync packages and run doctor"),
+    "hub": ("[--port N] [--no-open]", "open the kit dashboard in your browser"),
 }
 RESERVED = frozenset(BUILTINS) | {"_complete"}
+
+# Built-ins that live in their own module, imported only when used: name -> module with main(args) -> int
+MODULE_COMMANDS = {
+    "config": "core.config_cmd",
+    "update": "core.update",
+    "hub": "core.hub",
+}
+# Commands after which the daily "update available" notice is never printed.
+NO_UPDATE_NOTICE = {"_complete", "update", "hub"}
 
 
 def main(argv: list[str]) -> int:
@@ -33,11 +46,41 @@ def main(argv: list[str]) -> int:
             pass
 
     if not argv or argv[0] in ("-h", "--help"):
-        return cmd_list([])
-    command, args = argv[0], argv[1:]
-    if command in COMMANDS:
-        return COMMANDS[command](args)
-    return run_tool(command, args)
+        command, args = "list", []
+    else:
+        command, args = argv[0], argv[1:]
+
+    if command in MODULE_COMMANDS:
+        status = run_module_command(command, args)
+    elif command in COMMANDS:
+        status = COMMANDS[command](args)
+    else:
+        status = run_tool(command, args)
+
+    if command not in NO_UPDATE_NOTICE:
+        update_notice()
+    return status
+
+
+def run_module_command(command: str, args: list[str]) -> int:
+    module_name = MODULE_COMMANDS[command]
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        if exc.name != module_name:
+            raise
+        error(f"'kit {command}' isn't available in this copy of kit ({module_name} is missing)")
+        return 1
+    return module.main(args)
+
+
+def update_notice() -> None:
+    """Print the once-a-day "update available" line if one is due. Never fails or slows kit down."""
+    try:
+        from core import update
+        update.notify_if_due()
+    except Exception:
+        pass
 
 
 def run_tool(name: str, args: list[str]) -> int:
@@ -252,6 +295,23 @@ def cmd_doctor(args: list[str]) -> int:
         report(level, message)
     if not reg.tools and not reg.problems:
         report("warn", "no tools found")
+
+    _section("SETTINGS")
+    from kitlib import settings
+    from core import config_cmd
+
+    settings_path = settings.config_path()
+    if not settings_path.is_file():
+        report("ok", f"no settings file yet, defaults in use  {style(settings_path, 'dim')}")
+    else:
+        try:
+            stored = settings.load()
+        except settings.SettingsError as exc:
+            report("fail", f"{exc} - fix it with: kit config edit")
+        else:
+            report("ok", f"settings file  {settings_path}")
+            for level, message in config_cmd.audit(config_cmd.all_schemas(reg), stored):
+                report(level, message)
 
     print()
     print(style("all good", "green") if not failures else style(f"{failures} problem(s) need fixing", "red"))

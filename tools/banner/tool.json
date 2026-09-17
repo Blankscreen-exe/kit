@@ -1,3 +1,6 @@
 {
-  "category": "text"
+  "category": "text",
+  "settings": {
+    "font": {"type": "string", "default": "standard", "help": "figlet font to use (see: kit banner --fonts)"}
+  }
 }

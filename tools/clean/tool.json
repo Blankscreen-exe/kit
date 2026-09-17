@@ -1,3 +1,6 @@
 {
-  "category": "system"
+  "category": "system",
+  "settings": {
+    "older_than": {"type": "float", "default": 2, "min": 0, "help": "Temp files must be at least this many days old to be cleaned"}
+  }
 }

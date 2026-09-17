@@ -10,6 +10,7 @@ from pathlib import Path
 
 from kitlib import die
 from kitlib.figlet import FigletError, figlet_command, locate_figlet
+from kitlib.settings import tool_settings
 
 
 def list_fonts() -> int:
@@ -26,7 +27,8 @@ def list_fonts() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(prog="kit banner", description="Render text as an ASCII-art banner.")
     parser.add_argument("text", nargs="*", help="text to render (or pipe it in)")
-    parser.add_argument("-f", "--font", default="standard", help="font name (default: standard)")
+    parser.add_argument("-f", "--font", default=tool_settings().get("font", "standard"),
+                        help="font name (setting: banner.font, default: standard)")
     parser.add_argument("-w", "--width", type=int, default=shutil.get_terminal_size().columns, help="max output width")
     parser.add_argument("--fonts", action="store_true", help="list available fonts and exit")
     args = parser.parse_args()

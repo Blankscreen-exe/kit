@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from kitlib import KIT_HOME, die, style
+from kitlib.settings import SettingsError, set_value, tool_settings
+from kitlib.settings import load as load_settings
 
 try:
     from rich.text import Text
@@ -528,9 +530,13 @@ class PomodoroApp(App):
         self.settings = self.timer.settings = settings
         if not self.timer.started:
             self.timer.reset()
-        self.history.data["settings"] = asdict(settings)
-        self.history.save()
-        self.notify("Settings saved.", timeout=3)
+        try:
+            for key, value in asdict(settings).items():
+                set_value("pomodoro", key, value)
+        except SettingsError as exc:
+            self.notify(f"Couldn't save settings: {exc}", severity="error", timeout=8)
+        else:
+            self.notify("Settings saved.", timeout=3)
         self.refresh_view()
 
 
@@ -554,12 +560,28 @@ def print_stats(history: History) -> int:
     return 0
 
 
+def migrate_json_settings(history: History) -> None:
+    """Older versions kept settings in pomodoro.json. Move them to the kit settings file once."""
+    old = history.data.pop("settings", None)
+    if not isinstance(old, dict) or not old:
+        return
+    values = {key: old[key] for key, _ in SETTING_FIELDS if isinstance(old.get(key), int) and not isinstance(old.get(key), bool)}
+    try:
+        if values and not load_settings().get("pomodoro") and Settings(**values).validate() is None:
+            for key, value in values.items():
+                set_value("pomodoro", key, value)
+    except SettingsError:
+        history.data["settings"] = old  # keep them in the JSON so nothing is lost
+        return
+    history.save()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="kit pomodoro", description="Pomodoro focus timer in the terminal.")
-    parser.add_argument("--focus", type=int, help="focus length in minutes (default: 25, or your saved setting)")
-    parser.add_argument("--short", type=int, help="short break in minutes (default: 5)")
-    parser.add_argument("--long", type=int, help="long break in minutes (default: 15)")
-    parser.add_argument("--every", type=int, help="long break after this many focus sessions (default: 4)")
+    parser.add_argument("--focus", type=int, help="focus length in minutes (default: the pomodoro.focus setting, 25)")
+    parser.add_argument("--short", type=int, help="short break in minutes (default: the pomodoro.short setting, 5)")
+    parser.add_argument("--long", type=int, help="long break in minutes (default: the pomodoro.long setting, 15)")
+    parser.add_argument("--every", type=int, help="long break after this many focus sessions (default: the pomodoro.every setting, 4)")
     parser.add_argument("--task", default="", help="what you're working on")
     parser.add_argument("--stats", action="store_true", help="print your focus history and exit")
     parser.add_argument("--speed", type=float, default=1.0, help=argparse.SUPPRESS)  # testing: run the clock faster
@@ -569,8 +591,9 @@ def main() -> int:
     if args.stats:
         return print_stats(history)
 
-    saved = history.data.get("settings") or {}
-    settings = Settings(**{key: saved[key] for key in ("focus", "short", "long", "every") if isinstance(saved.get(key), int)})
+    migrate_json_settings(history)
+    conf = tool_settings()
+    settings = Settings(**{key: conf[key] for key, _ in SETTING_FIELDS if key in conf})
     for key in ("focus", "short", "long", "every"):
         if getattr(args, key) is not None:
             setattr(settings, key, getattr(args, key))

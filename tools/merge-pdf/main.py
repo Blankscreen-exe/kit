@@ -29,6 +29,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from kitlib import KIT_HOME, die, style, warn
 from kitlib.browser import open_app_window
+from kitlib.settings import tool_settings
 
 try:
     from PIL import Image, ImageOps, UnidentifiedImageError
@@ -662,14 +663,20 @@ def main() -> int:
     parser.add_argument("inputs", nargs="*", help="image files, folders or globs (e.g. *.jpg)")
     parser.add_argument("-o", "--output", help="PDF to write (default: merged.pdf in the current folder)")
     parser.add_argument("-r", "--recursive", action="store_true", help="include images in subfolders")
-    parser.add_argument("--no-open", action="store_true", help="don't open the page, only print its address")
+    conf = tool_settings()
+    parser.add_argument("--no-open", action="store_true", help="don't open the page, only print its address (setting: merge-pdf.open)")
+    parser.add_argument("--open", dest="no_open", action="store_false", help="open the page in your browser")
     parser.add_argument("--window", action="store_true", help="open the page in its own app window")
     parser.add_argument("--no-ui", action="store_true", help="build the PDF straight away without the page")
     parser.add_argument("--order", choices=["name", "date", "given"], default="name", help="starting page order (default: name)")
-    parser.add_argument("--page", choices=CHOICES["page"], default="fit", help="page size (default: fit each image)")
+    parser.add_argument("--page", choices=CHOICES["page"], default=conf.get("page", "fit"),
+                        help="page size (setting: merge-pdf.page, default: fit each image)")
     parser.add_argument("--orientation", choices=CHOICES["orientation"], default="auto", help="A4/Letter orientation (default: auto)")
-    parser.add_argument("--margin", choices=CHOICES["margin"], default="small", help="A4/Letter margin (default: small)")
-    parser.add_argument("--quality", choices=CHOICES["quality"], default="high", help="image quality (default: high)")
+    parser.add_argument("--margin", choices=CHOICES["margin"], default=conf.get("margin", "small"),
+                        help="A4/Letter margin (setting: merge-pdf.margin, default: small)")
+    parser.add_argument("--quality", choices=CHOICES["quality"], default=conf.get("quality", "high"),
+                        help="image quality (setting: merge-pdf.quality, default: high)")
+    parser.set_defaults(no_open=not conf.get("open", True))
     args = parser.parse_args()
 
     if args.output:

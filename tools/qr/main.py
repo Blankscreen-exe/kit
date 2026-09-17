@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from kitlib import KIT_HOME, die, style
+from kitlib.settings import tool_settings
 
 try:
     import segno
@@ -28,12 +29,15 @@ def main() -> int:
     parser.add_argument("--svg", type=Path, metavar="FILE", help="save as an SVG image")
     parser.add_argument("--show", action="store_true", help="draw in the terminal even when saving a file")
     parser.add_argument("--scale", type=int, default=10, help="pixels per module in saved images (default: 10)")
-    parser.add_argument("--invert", action="store_true", help="swap dark and light (for light terminals without colour)")
+    parser.add_argument("--invert", action="store_true",
+                        help="swap dark and light, for light terminals without colour (setting: qr.invert)")
+    parser.add_argument("--no-invert", dest="invert", action="store_false", help="don't swap dark and light")
     parser.add_argument("--error", default="M", choices=["L", "M", "Q", "H"], type=str.upper, help="error correction level (default: M)")
     parser.add_argument("--wifi", metavar="SSID", help="make a Wi-Fi join code for this network name")
     parser.add_argument("--password", help="Wi-Fi password (with --wifi)")
     parser.add_argument("--security", choices=["WPA", "WEP", "nopass"], help="Wi-Fi security (default: WPA with a password, else nopass)")
     parser.add_argument("--hidden", action="store_true", help="the Wi-Fi network is hidden (with --wifi)")
+    parser.set_defaults(invert=tool_settings().get("invert", False))
     args = parser.parse_args()
 
     if args.wifi is not None:

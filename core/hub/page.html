@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kit hub</title>
+<style>
+:root {
+  --bg: #f4f6f9; --panel: #ffffff; --panel-2: #f0f3f7; --border: #dce2ea; --text: #1d2733; --muted: #647387;
+  --accent: #1d63ed; --accent-soft: #e7eefe;
+  --green: #1a7f37; --green-soft: #dcf5e3; --amber: #9a6700; --amber-soft: #fcf0d0;
+  --red: #cf222e; --red-soft: #fde5e5; --grey: #57606a; --grey-soft: #e9edf1;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .07);
+  --mono: "Cascadia Code", Consolas, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel-2: #1d242e; --border: #2c3643; --text: #e6edf3; --muted: #8d99a8;
+    --accent: #4c8dff; --accent-soft: #15233d;
+    --green: #3fb950; --green-soft: #12301b; --amber: #d29922; --amber-soft: #382a0b;
+    --red: #f85149; --red-soft: #3c1618; --grey: #8b949e; --grey-soft: #262d36;
+    --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, -apple-system, Roboto, "Noto Sans", sans-serif; }
+button, input, select { font: inherit; color: inherit; }
+a { color: var(--accent); }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--border); }
+.bar { max-width: 1320px; margin: 0 auto; padding: 12px 20px 8px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
+.logo { width: 30px; height: 30px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; font-size: 16px; }
+.version { color: var(--muted); font-weight: 400; font-size: 12.5px; }
+.spacer { flex: 1; }
+nav.tabs { max-width: 1320px; margin: 0 auto; padding: 0 20px; display: flex; gap: 2px; }
+.tab { color: var(--muted); padding: 8px 14px 10px; font-weight: 600; text-decoration: none; border-bottom: 2px solid transparent; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+main { max-width: 1320px; margin: 0 auto; padding: 20px; }
+.banner { background: var(--red-soft); color: var(--red); border: 1px solid var(--red); border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; font-weight: 600; }
+.notice { background: var(--amber-soft); color: var(--amber); border: 1px solid transparent; border-radius: 8px; padding: 9px 13px; margin: 10px 0; font-size: 13px; }
+.ok-note { background: var(--green-soft); color: var(--green); border-radius: 8px; padding: 9px 13px; margin: 10px 0; font-size: 13px; font-weight: 600; }
+.toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+input[type=search], input[type=text], input[type=number], input.args, select {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; padding: 5px 10px;
+}
+input[type=search] { width: 320px; max-width: 100%; }
+input:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.group { margin-bottom: 26px; }
+.group-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; }
+.group-head h2 { font-size: 13px; margin: 0; text-transform: uppercase; letter-spacing: .06em; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; box-shadow: var(--shadow); min-width: 0; }
+a.card { display: flex; flex-direction: column; gap: 6px; color: inherit; text-decoration: none; transition: border-color .12s; }
+a.card:hover { border-color: var(--accent); }
+.card.unsupported { opacity: .6; }
+.card-top { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.card-top h3 { margin: 0; font-size: 15px; font-family: var(--mono); }
+.summary { margin: 0; color: var(--muted); font-size: 13px; }
+.badge { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.badge.green { color: var(--green); background: var(--green-soft); }
+.badge.amber { color: var(--amber); background: var(--amber-soft); }
+.badge.red { color: var(--red); background: var(--red-soft); }
+.badge.grey { color: var(--grey); background: var(--grey-soft); }
+.badge.blue { color: var(--accent); background: var(--accent-soft); }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; }
+.btn { border: 1px solid var(--border); background: var(--panel-2); border-radius: 6px; padding: 5px 12px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.danger { color: var(--red); }
+.btn.danger:hover { border-color: var(--red); }
+.btn.small { padding: 2px 9px; font-size: 12px; }
+.btn:disabled { opacity: .5; cursor: default; }
+.cmd { display: flex; align-items: center; gap: 8px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 3px 3px 10px; margin-top: 8px; }
+.cmd code { flex: 1; font-family: var(--mono); font-size: 12px; overflow-x: auto; white-space: nowrap; }
+.copy { border: 0; background: none; color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; padding: 2px 8px; border-radius: 4px; }
+.copy:hover { background: var(--accent-soft); }
+.empty { color: var(--muted); padding: 40px; text-align: center; background: var(--panel); border: 1px dashed var(--border); border-radius: 10px; }
+
+/* running launches */
+.launch-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--green); border-radius: 10px; padding: 9px 14px; margin-bottom: 16px; }
+.launch { display: inline-flex; align-items: center; gap: 8px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+
+/* tool detail */
+.back { display: inline-block; margin-bottom: 12px; text-decoration: none; font-weight: 600; font-size: 13px; }
+.detail-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.detail-head h2 { margin: 0; font-family: var(--mono); font-size: 22px; }
+.detail-summary { color: var(--muted); margin: 6px 0 16px; }
+.detail-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .detail-grid { grid-template-columns: 1fr; } }
+.runbox h3, .readme-card h3 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.args-row { display: flex; align-items: center; gap: 8px; }
+.prompt { color: var(--muted); white-space: nowrap; }
+input.args { flex: 1; min-width: 0; font-family: var(--mono); font-size: 13px; padding: 6px 10px; }
+.hint { font-size: 12.5px; margin-top: 8px; }
+.term-wrap { margin-top: 12px; }
+.term-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12.5px; }
+.status-ok { color: var(--green); font-weight: 600; }
+.status-bad { color: var(--red); font-weight: 600; }
+.spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+pre.term { margin: 0; background: #0b0f14; color: #d5dde6; font-family: var(--mono); font-size: 12.5px; line-height: 1.45; padding: 12px 14px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 90px; max-height: 62vh; overflow: auto; border: 1px solid #1f2733; }
+pre.term .ln { min-height: 1.45em; }
+.launch-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.launch-row { display: flex; align-items: center; gap: 10px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px; flex-wrap: wrap; }
+.readme { font-size: 13.5px; overflow-wrap: anywhere; }
+.readme > :first-child { margin-top: 0; }
+.readme h2 { font-size: 15px; margin: 18px 0 8px; }
+.readme h3 { font-size: 14px; margin: 14px 0 6px; }
+.readme code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+.readme pre { background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; padding: 10px 12px; overflow-x: auto; }
+.readme pre code { background: none; padding: 0; }
+.readme table { border-collapse: collapse; margin: 10px 0; font-size: 12.5px; display: block; overflow-x: auto; }
+.readme th, .readme td { border: 1px solid var(--border); padding: 5px 9px; text-align: left; vertical-align: top; }
+.readme th { background: var(--panel-2); }
+.readme ul { padding-left: 20px; }
+
+/* settings */
+.settings-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.settings-list { display: grid; gap: 14px; }
+.section-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.section-top h3 { margin: 0; font-family: var(--mono); font-size: 15px; }
+.setting { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 18px; padding: 11px 0; border-top: 1px solid var(--border); align-items: center; }
+.setting:first-of-type { border-top: 0; }
+@media (max-width: 760px) { .setting { grid-template-columns: 1fr; } }
+.setting-key { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-weight: 600; }
+.setting-control { display: flex; align-items: center; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.setting-control input[type=text] { width: 260px; max-width: 100%; }
+.setting-control input[type=number] { width: 110px; }
+.setting-error { color: var(--red); font-size: 12.5px; font-weight: 600; }
+.switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+
+/* updates */
+.stats { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+.stat { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; min-width: 120px; }
+.stat b { display: block; font-size: 20px; }
+.commit { display: flex; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.commit:first-child { border-top: 0; }
+
+.toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 30; }
+.toast { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--green); border-radius: 8px; padding: 8px 12px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); max-width: 460px; font-size: 13px; }
+.toast.error { border-left-color: var(--red); }
+.toast .mono { color: var(--muted); display: block; margin-top: 2px; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand"><div class="logo">🧰</div>kit hub <span class="version" id="version"></span></div>
+    <div class="spacer"></div>
+    <span class="muted small mono" id="cwd"></span>
+  </div>
+  <nav class="tabs">
+    <a class="tab" data-tab="tools" href="#tools">Tools</a>
+    <a class="tab" data-tab="settings" href="#settings">Settings</a>
+    <a class="tab" data-tab="updates" href="#updates">Updates</a>
+    <a class="tab" data-tab="doctor" href="#doctor">Doctor</a>
+  </nav>
+</header>
+
+<main>
+  <div class="banner" id="banner" hidden></div>
+
+  <section class="view" id="view-tools">
+    <div id="launches"></div>
+    <div id="tools-list">
+      <div class="toolbar">
+        <input type="search" id="filter" placeholder="Search tools…" autocomplete="off">
+        <span class="muted small" id="tool-count"></span>
+      </div>
+      <div id="problems"></div>
+      <div id="tools-grid"></div>
+    </div>
+    <div id="tool-detail" hidden></div>
+  </section>
+
+  <section class="view" id="view-settings" hidden>
+    <div class="settings-head">
+      <div><strong>Settings file</strong> <span class="mono" id="settings-path"></span> <span class="muted small" id="settings-exists"></span></div>
+      <div class="spacer"></div>
+      <button class="btn" id="settings-open">Open file</button>
+      <button class="btn" id="settings-reload">Reload</button>
+    </div>
+    <p class="muted small" style="margin-top:-6px">Command-line flags still win for a single run, and a setting's environment variable wins over the file.</p>
+    <div id="settings-banner"></div>
+    <div class="settings-list" id="settings-list"></div>
+  </section>
+
+  <section class="view" id="view-updates" hidden>
+    <div class="card">
+      <div class="card-top"><h3 style="font-family:inherit">Updates</h3><span class="spacer"></span>
+        <button class="btn primary" id="upd-check">Check for updates</button>
+        <button class="btn" id="upd-apply" disabled>Update now</button>
+      </div>
+      <div id="upd-body" class="muted small" style="margin-top:8px">Check GitHub for new commits to kit.</div>
+      <div class="term-wrap" id="upd-term-wrap" hidden>
+        <div class="term-head"><span id="upd-status"></span></div>
+        <pre class="term" id="upd-term"></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="view-doctor" hidden>
+    <div class="card">
+      <div class="card-top"><h3 style="font-family:inherit">Doctor</h3><span class="muted small">checks the install, the uv environment, settings and every tool</span><span class="spacer"></span>
+        <button class="btn primary" id="doctor-run">Run doctor</button>
+      </div>
+      <div class="term-wrap">
+        <div class="term-head"><span id="doctor-status" class="muted"></span></div>
+        <pre class="term" id="doctor-term"></pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const TABS = ["tools", "settings", "updates", "doctor"];
+
+const state = {
+  meta: {}, tools: [], problems: [], filter: "", jobs: [],
+  detail: null, args: {}, attached: null, abort: null,
+  settings: null, updateResult: null, doctorStarted: false,
+};
+
+// ---- api ---------------------------------------------------------------------
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    credentials: "same-origin", cache: "no-store", ...options,
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+  });
+  let body;
+  try { body = await response.json(); } catch (_) { body = { error: response.statusText }; }
+  if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+  return body;
+}
+
+const post = (path, body = {}) => api(path, { method: "POST", body: JSON.stringify(body) });
+
+async function streamJob(jobId, onEvent, signal) {
+  const response = await fetch(`/api/jobs/${jobId}/stream`, { credentials: "same-origin", cache: "no-store", signal });
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`;
+    try { message = (await response.json()).error || message; } catch (_) { /* keep status */ }
+    throw new Error(message);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let newline;
+    while ((newline = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      if (line.trim()) onEvent(JSON.parse(line));
+    }
+  }
+}
+
+function toast(title, detail = "", isError = false) {
+  const el = document.createElement("div");
+  el.className = "toast" + (isError ? " error" : "");
+  el.innerHTML = `${esc(title)}${detail ? `<span class="mono">${esc(detail)}</span>` : ""}`;
+  $("toasts").appendChild(el);
+  setTimeout(() => el.remove(), isError ? 9000 : 5000);
+}
+
+function showBanner(message) {
+  $("banner").textContent = message || "";
+  $("banner").hidden = !message;
+}
+
+async function copyText(text, button) {
+  try { await navigator.clipboard.writeText(text); } catch (_) {
+    const area = document.createElement("textarea");
+    area.value = text; document.body.appendChild(area); area.select(); document.execCommand("copy"); area.remove();
+  }
+  const label = button.textContent;
+  button.textContent = "Copied";
+  setTimeout(() => { button.textContent = label; }, 1200);
+}
+
+// ---- ANSI terminal -------------------------------------------------------------
+
+const PALETTE = ["#1b1f24", "#e5534b", "#57ab5a", "#c69026", "#539bf5", "#b083f0", "#39c5cf", "#adbac7",
+                 "#636e7b", "#ff7b72", "#7ee787", "#f2cc60", "#79c0ff", "#d2a8ff", "#56d4dd", "#f0f6fc"];
+const RESET = { fg: null, bg: null, bold: false, dim: false, italic: false, underline: false };
+const ESCAPES = /\x1b\[([0-9;?]*)([A-Za-z])|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Za-z0-9]|\x1b[=>78]/g;
+
+function xterm256(n) {
+  n = n | 0;
+  if (n < 16) return PALETTE[n] || null;
+  if (n < 232) {
+    const steps = [0, 95, 135, 175, 215, 255], i = n - 16;
+    return `rgb(${steps[Math.floor(i / 36) % 6]},${steps[Math.floor(i / 6) % 6]},${steps[i % 6]})`;
+  }
+  const level = 8 + (n - 232) * 10;
+  return `rgb(${level},${level},${level})`;
+}
+
+function applySgr(current, params) {
+  const codes = params === "" ? [0] : params.split(";").map((part) => parseInt(part || "0", 10) || 0);
+  const st = { ...current };
+  for (let i = 0; i < codes.length; i++) {
+    const c = codes[i];
+    if (c === 0) Object.assign(st, RESET);
+    else if (c === 1) st.bold = true;
+    else if (c === 2) st.dim = true;
+    else if (c === 3) st.italic = true;
+    else if (c === 4) st.underline = true;
+    else if (c === 22) { st.bold = false; st.dim = false; }
+    else if (c === 23) st.italic = false;
+    else if (c === 24) st.underline = false;
+    else if (c >= 30 && c <= 37) st.fg = PALETTE[c - 30];
+    else if (c >= 90 && c <= 97) st.fg = PALETTE[c - 90 + 8];
+    else if (c === 39) st.fg = null;
+    else if (c >= 40 && c <= 47) st.bg = PALETTE[c - 40];
+    else if (c >= 100 && c <= 107) st.bg = PALETTE[c - 100 + 8];
+    else if (c === 49) st.bg = null;
+    else if ((c === 38 || c === 48) && codes[i + 1] === 5) {
+      const colour = xterm256(codes[i + 2]); if (c === 38) st.fg = colour; else st.bg = colour; i += 2;
+    } else if ((c === 38 || c === 48) && codes[i + 1] === 2) {
+      const colour = `rgb(${codes[i + 2] | 0},${codes[i + 3] | 0},${codes[i + 4] | 0})`;
+      if (c === 38) st.fg = colour; else st.bg = colour; i += 4;
+    }
+  }
+  return st;
+}
+
+function spanFor(text, st) {
+  if (!text) return "";
+  const rules = [];
+  if (st.fg) rules.push(`color:${st.fg}`);
+  if (st.bg) rules.push(`background:${st.bg}`);
+  if (st.bold) rules.push("font-weight:700");
+  if (st.dim) rules.push("opacity:.65");
+  if (st.italic) rules.push("font-style:italic");
+  if (st.underline) rules.push("text-decoration:underline");
+  return rules.length ? `<span style="${rules.join(";")}">${esc(text)}</span>` : esc(text);
+}
+
+function ansiToHtml(text, start) {
+  let st = start, html = "", last = 0, match;
+  ESCAPES.lastIndex = 0;
+  while ((match = ESCAPES.exec(text))) {
+    html += spanFor(text.slice(last, match.index), st);
+    last = ESCAPES.lastIndex;
+    if (match[2] === "m") st = applySgr(st, match[1]);
+  }
+  html += spanFor(text.slice(last), st);
+  return { html, state: st };
+}
+
+class Terminal {
+  constructor(el) { this.el = el; this.clear(); }
+  clear() {
+    this.el.innerHTML = "";
+    this.state = { ...RESET };
+    this.current = "";
+    this.carriage = false;
+    this.text = "";
+    this.line = this.newLine();
+  }
+  newLine() { const div = document.createElement("div"); div.className = "ln"; this.el.appendChild(div); return div; }
+  write(chunk) {
+    const nearBottom = this.el.scrollTop + this.el.clientHeight >= this.el.scrollHeight - 30;
+    this.text += chunk;
+    for (const part of chunk.split(/(\r\n|\n|\r)/)) {
+      if (part === "\n" || part === "\r\n") this.commit();
+      else if (part === "\r") this.carriage = true;
+      else if (part) {
+        if (this.carriage) { this.current = ""; this.carriage = false; }
+        this.current += part;
+      }
+    }
+    this.line.innerHTML = ansiToHtml(this.current, this.state).html;
+    if (nearBottom) this.el.scrollTop = this.el.scrollHeight;
+  }
+  commit() {
+    const rendered = ansiToHtml(this.current, this.state);
+    this.line.innerHTML = rendered.html;
+    this.state = rendered.state;
+    this.current = "";
+    this.carriage = false;
+    this.line = this.newLine();
+  }
+}
+
+// ---- routing -----------------------------------------------------------------
+
+function route() {
+  const [tab, ...rest] = decodeURIComponent(location.hash.slice(1)).split("/");
+  const current = TABS.includes(tab) ? tab : "tools";
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === current));
+  document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== `view-${current}`; });
+  if (current === "tools") {
+    const name = rest.join("/");
+    if (name) openDetail(name); else closeDetail();
+  } else if (current === "settings") loadSettings();
+  else if (current === "updates") renderUpdates();
+  else if (current === "doctor" && !state.doctorStarted) runDoctor();
+}
+
+// ---- tools -------------------------------------------------------------------
+
+function badges(t) {
+  const out = [];
+  if (t.web) out.push('<span class="badge blue">web</span>');
+  if (t.interactive) out.push('<span class="badge amber">terminal app</span>');
+  if (!t.supported) out.push(`<span class="badge grey">not on ${esc(state.meta.platform || "this OS")}</span>`);
+  if (t.hasSettings) out.push('<span class="badge grey">settings</span>');
+  return out.join("");
+}
+
+function toolCard(t) {
+  const aliases = t.aliases.length ? `<span class="muted mono">${esc(t.aliases.join(", "))}</span>` : "";
+  return `<a class="card${t.supported ? "" : " unsupported"}" href="#tools/${encodeURIComponent(t.name)}">
+    <div class="card-top"><h3>${esc(t.name)}</h3>${aliases}<span class="spacer"></span>${badges(t)}</div>
+    <p class="summary">${esc(t.summary || "No summary yet.")}</p>
+  </a>`;
+}
+
+function renderTools() {
+  const needle = state.filter.trim().toLowerCase();
+  const list = state.tools.filter((t) => !needle || [t.name, t.summary, t.category, ...t.aliases].join(" ").toLowerCase().includes(needle));
+  $("tool-count").textContent = `${list.length} of ${state.tools.length} tools`;
+  $("problems").innerHTML = state.problems.length
+    ? `<div class="notice">${state.problems.length} problem(s) found in tool folders - see the Doctor tab.</div>` : "";
+  if (!list.length) { $("tools-grid").innerHTML = '<div class="empty">No tools match.</div>'; return; }
+  const groups = new Map();
+  for (const t of list) {
+    if (!groups.has(t.category)) groups.set(t.category, []);
+    groups.get(t.category).push(t);
+  }
+  $("tools-grid").innerHTML = [...groups.entries()].map(([category, items]) => `<section class="group">
+      <div class="group-head"><h2>${esc(category)}</h2><span class="muted small">${items.length} tool${items.length === 1 ? "" : "s"}</span></div>
+      <div class="cards">${items.map(toolCard).join("")}</div>
+    </section>`).join("");
+}
+
+const safeUrl = (url) => (/^https?:\/\//i.test(url || "") ? url : "");
+
+function launchChip(job) {
+  const url = safeUrl(job.url);
+  return `<span class="launch"><span class="dot"></span><span class="mono">${esc(job.display)}</span>
+    ${url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open ↗</a>` : '<span class="muted small">starting…</span>'}
+    <button class="btn small" data-stop="${esc(job.id)}">Stop</button></span>`;
+}
+
+function renderLaunches() {
+  const running = state.jobs.filter((j) => j.kind === "launch" && j.running);
+  $("launches").innerHTML = running.length
+    ? `<div class="launch-bar"><strong>Running</strong>${running.map(launchChip).join("")}</div>` : "";
+  const box = $("tool-launches");
+  if (box && state.detail) {
+    const mine = running.filter((j) => j.tool === state.detail.name);
+    box.innerHTML = mine.length
+      ? `<div class="launch-list">${mine.map((j) => `<div class="launch-row">${launchChip(j)}</div>`).join("")}</div>` : "";
+  }
+}
+
+async function refreshJobs() {
+  try {
+    state.jobs = (await api("/api/jobs")).jobs;
+    renderLaunches();
+  } catch (_) { /* the next poll retries */ }
+}
+
+function hintFor(t) {
+  const cwd = `<span class="mono">${esc(state.meta.cwd || "")}</span>`;
+  if (t.interactive) return `This is a full-screen terminal app, so it opens in a new terminal window (working folder ${cwd}).`;
+  if (t.web) return `Starts in the background and shows its link here when it's ready. <span class="mono">--no-open</span> is added for you.`;
+  return `Runs in ${cwd}. Input is closed, so tools that ask for confirmation need <span class="mono">--yes</span>.`;
+}
+
+function detailHtml(t) {
+  let action;
+  if (!t.supported) {
+    action = `<div class="notice">Not available on ${esc(state.meta.platform)} (available on: ${esc(t.availableOn.join(", ") || "nothing")}).</div>`;
+  } else {
+    const button = t.interactive ? '<button class="btn primary" id="act-terminal">Open in terminal</button>'
+      : t.web ? '<button class="btn primary" id="act-launch">Launch</button>'
+      : '<button class="btn primary" id="act-run">Run ▶</button>';
+    const term = t.interactive ? "" : `<div class="term-wrap" id="term-wrap" hidden>
+        <div class="term-head"><span id="term-status" class="muted"></span><span class="spacer"></span>
+          <button class="btn small danger" id="act-stop" hidden>Stop</button><button class="btn small" id="term-clear">Clear</button></div>
+        <pre class="term" id="term"></pre>
+      </div>`;
+    action = `<div class="args-row"><span class="prompt mono">kit ${esc(t.name)}</span>
+        <input class="args" id="args" autocomplete="off" spellcheck="false" placeholder="arguments, e.g. --help">${button}</div>
+      <div class="cmd"><code id="cmd-line"></code><button class="copy" id="copy-cmd">Copy</button></div>
+      <div class="hint muted">${hintFor(t)}</div>
+      ${t.web ? '<div id="tool-launches"></div>' : ""}
+      ${term}`;
+  }
+  const aliases = t.aliases.length ? `<span class="muted mono">alias: ${esc(t.aliases.join(", "))}</span>` : "";
+  const settingsLink = t.hasSettings ? `<a class="small" href="#settings">settings</a>` : "";
+  return `<a class="back" href="#tools">← All tools</a>
+    <div class="detail-head"><h2>${esc(t.name)}</h2>${aliases}${badges(t)}<span class="spacer"></span>${settingsLink}</div>
+    <p class="detail-summary">${esc(t.summary)}</p>
+    <div class="detail-grid">
+      <div class="card runbox"><h3>Run</h3>${action}</div>
+      <div class="card readme-card"><h3>Docs</h3>
+        <article class="readme" id="readme">${t.readmeHtml || '<p class="muted">This tool has no README yet.</p>'}</article>
+        <p class="muted small">Folder <span class="mono">${esc(t.folder)}</span></p>
+      </div>
+    </div>`;
+}
+
+function updateCommandLine() {
+  if (!state.detail || !$("cmd-line")) return;
+  const args = $("args").value.trim();
+  $("cmd-line").textContent = `kit ${state.detail.name}${args ? " " + args : ""}`;
+  state.args[state.detail.name] = $("args").value;
+}
+
+async function openDetail(name) {
+  if (state.detail && state.detail.name === name && !$("tool-detail").hidden) return;
+  detachStream();
+  $("tools-list").hidden = true;
+  const box = $("tool-detail");
+  box.hidden = false;
+  box.innerHTML = '<div class="empty">Loading…</div>';
+  let tool;
+  try {
+    tool = await api(`/api/tool?name=${encodeURIComponent(name)}`);
+  } catch (err) {
+    state.detail = null;
+    box.innerHTML = `<a class="back" href="#tools">← All tools</a><div class="banner">${esc(err.message)}</div>`;
+    return;
+  }
+  state.detail = tool;
+  box.innerHTML = detailHtml(tool);
+  box.querySelectorAll("#readme a[href]").forEach((a) => { a.target = "_blank"; a.rel = "noopener noreferrer"; });
+  window.scrollTo(0, 0);
+  if (!tool.supported) return;
+
+  $("args").value = state.args[tool.name] || "";
+  $("args").addEventListener("input", updateCommandLine);
+  $("args").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") (($("act-run") || $("act-launch") || $("act-terminal"))).click();
+  });
+  $("copy-cmd").addEventListener("click", (event) => copyText($("cmd-line").textContent, event.target));
+  updateCommandLine();
+  if ($("act-run")) $("act-run").addEventListener("click", () => startJob("/api/run"));
+  if ($("act-launch")) $("act-launch").addEventListener("click", () => startJob("/api/launch"));
+  if ($("act-terminal")) $("act-terminal").addEventListener("click", openTerminal);
+  if ($("act-stop")) $("act-stop").addEventListener("click", () => stopJob(state.attached));
+  if ($("term-clear")) $("term-clear").addEventListener("click", () => { if (state.term) state.term.clear(); });
+  renderLaunches();
+
+  // Show the latest output for this tool (still running or finished), e.g. after a page reload.
+  await refreshJobs();
+  const latest = state.jobs.find((j) => j.tool === tool.name && (j.kind === "run" || j.kind === "launch"));
+  if (latest && state.detail === tool) attachJob(latest.id);
+}
+
+function closeDetail() {
+  detachStream();
+  state.detail = null;
+  $("tool-detail").hidden = true;
+  $("tools-list").hidden = false;
+  renderLaunches();
+}
+
+function detachStream() {
+  if (state.abort) state.abort.abort();
+  state.abort = null;
+  state.attached = null;
+}
+
+async function startJob(endpoint) {
+  const t = state.detail;
+  if (!t) return;
+  try {
+    const { job } = await post(endpoint, { tool: t.name, args: $("args").value });
+    attachJob(job.id);
+    refreshJobs();
+  } catch (err) {
+    toast(`Couldn't start ${t.name}`, err.message, true);
+  }
+}
+
+function setStatus(html) { if ($("term-status")) $("term-status").innerHTML = html; }
+
+async function attachJob(jobId) {
+  const t = state.detail;
+  if (!t || !$("term")) return;
+  detachStream();
+  const controller = new AbortController();
+  state.abort = controller;
+  state.attached = jobId;
+  $("term-wrap").hidden = false;
+  const term = new Terminal($("term"));
+  state.term = term;
+  $("act-stop").hidden = false;
+  setStatus('<span class="spinner"></span>running…');
+  const mine = () => state.attached === jobId && state.detail === t;
+  try {
+    await streamJob(jobId, (event) => {
+      if (!mine()) return;
+      if (event.type === "output") term.write(event.text);
+      else if (event.type === "url") refreshJobs();
+      else if (event.type === "exit") finishJob(event, term);
+    }, controller.signal);
+  } catch (err) {
+    if (mine() && err.name !== "AbortError") { setStatus(`<span class="status-bad">lost the output: ${esc(err.message)}</span>`); $("act-stop").hidden = true; }
+  }
+}
+
+function finishJob(event, term) {
+  $("act-stop").hidden = true;
+  const took = `${event.duration}s`;
+  if (event.stopped) setStatus(`<span class="muted">stopped after ${took}</span>`);
+  else if (event.code === 0) setStatus(`<span class="status-ok">✓ finished</span> <span class="muted">exit 0 · ${took}</span>`);
+  else {
+    const confirmHint = /--yes|\[y\/n\]|confirm|EOF|no input/i.test(term.text)
+      ? ' <span class="muted">· this tool wanted input - add <span class="mono">--yes</span></span>' : "";
+    setStatus(`<span class="status-bad">✗ exit ${esc(event.code)}</span> <span class="muted">· ${took}</span>${confirmHint}`);
+  }
+  refreshJobs();
+}
+
+async function stopJob(jobId) {
+  if (!jobId) return;
+  try { await post(`/api/jobs/${jobId}/stop`); } catch (err) { toast("Couldn't stop it", err.message, true); }
+  refreshJobs();
+}
+
+async function openTerminal() {
+  const t = state.detail;
+  try {
+    const result = await post("/api/terminal", { tool: t.name, args: $("args").value });
+    if (result.dryRun) toast("Dry run - would open a terminal with:", result.command.join(" "));
+    else toast("Opened a new terminal window", result.display);
+  } catch (err) {
+    toast(`Couldn't open ${t.name}`, err.message, true);
+  }
+}
+
+// ---- settings ----------------------------------------------------------------
+
+function fmt(value) {
+  if (value === "" || value === null || value === undefined) return "(empty)";
+  return String(value);
+}
+
+function settingRow(section, it) {
+  const v = it.value;
+  let control;
+  if (it.type === "bool") {
+    control = `<label class="switch"><input type="checkbox" data-control ${v ? "checked" : ""}><span class="muted small">${v ? "on" : "off"}</span></label>`;
+  } else if (it.type === "choice") {
+    control = `<select data-control>${(it.choices || []).map((c) => `<option value="${esc(c)}"${String(c) === String(v) ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>`;
+  } else if (it.type === "int" || it.type === "float") {
+    control = `<input type="number" data-control value="${esc(v)}"${it.min != null ? ` min="${esc(it.min)}"` : ""}${it.max != null ? ` max="${esc(it.max)}"` : ""} step="${it.type === "float" ? "any" : "1"}">`;
+  } else {
+    control = `<input type="text" data-control value="${esc(v)}" spellcheck="false" placeholder="(empty)">`;
+  }
+  const source = { file: '<span class="badge blue">file</span>', env: '<span class="badge amber">env</span>', default: '<span class="badge grey">default</span>' }[it.source] || "";
+  const env = it.env ? ` · env <span class="mono">$${esc(it.env)}</span>${it.envActive ? " <strong>is set and overrides the file</strong>" : ""}` : "";
+  const invalid = it.invalid ? `<div class="setting-error">The value in the file is invalid (${esc(it.invalid)}), so the default is used.</div>` : "";
+  return `<div class="setting" data-section="${esc(section)}" data-key="${esc(it.key)}" data-type="${esc(it.type)}">
+    <div>
+      <div class="setting-key">${esc(it.key)} ${source}</div>
+      <div class="muted small">${esc(it.help || "")}</div>
+      <div class="muted small">default <span class="mono">${esc(fmt(it.default))}</span>${env}</div>
+      ${invalid}<div class="setting-error" data-error hidden></div>
+    </div>
+    <div class="setting-control">${control}
+      <button class="btn small primary" data-save disabled>Save</button>
+      <button class="btn small" data-reset${it.hasStored ? "" : " hidden"}>Reset</button>
+    </div>
+  </div>`;
+}
+
+function sectionCard(sec) {
+  const link = sec.section === "kit" ? "" : `<a class="small" href="#tools/${encodeURIComponent(sec.section)}">open tool</a>`;
+  const unknown = sec.unknownKeys.length ? `<div class="notice">Unknown keys in the file are ignored: ${esc(sec.unknownKeys.join(", "))}</div>` : "";
+  return `<div class="card">
+    <div class="section-top"><h3>[${esc(sec.section)}]</h3><span class="muted small">${esc(sec.summary || "")}</span><span class="spacer"></span>${link}</div>
+    ${unknown}${sec.settings.map((it) => settingRow(sec.section, it)).join("")}
+  </div>`;
+}
+
+function renderSettings() {
+  const s = state.settings;
+  if (!s) return;
+  $("settings-path").textContent = s.path;
+  $("settings-exists").textContent = s.exists ? "" : "(not created yet - saving a setting creates it)";
+  const notes = [];
+  if (s.error) notes.push(`<div class="banner">${esc(s.error)} - defaults are being used until it's fixed.</div>`);
+  if (s.unknownSections.length) notes.push(`<div class="notice">Sections in the file that no tool uses: ${esc(s.unknownSections.join(", "))}</div>`);
+  $("settings-banner").innerHTML = notes.join("");
+  $("settings-list").innerHTML = s.sections.map(sectionCard).join("");
+}
+
+async function loadSettings() {
+  try {
+    state.settings = await api("/api/settings");
+    renderSettings();
+  } catch (err) {
+    $("settings-banner").innerHTML = `<div class="banner">${esc(err.message)}</div>`;
+  }
+}
+
+function controlValue(row) {
+  const control = row.querySelector("[data-control]");
+  return row.dataset.type === "bool" ? control.checked : control.value;
+}
+
+async function saveSetting(row, reset) {
+  const error = row.querySelector("[data-error]");
+  error.hidden = true;
+  const body = { section: row.dataset.section, key: row.dataset.key };
+  if (reset) body.reset = true; else body.value = controlValue(row);
+  try {
+    const result = await post("/api/settings", body);
+    state.settings = result.settings;
+    renderSettings();
+    toast(reset ? `Reset ${body.section}.${body.key} to its default` : `Saved ${body.section}.${body.key}`);
+  } catch (err) {
+    error.textContent = err.message;
+    error.hidden = false;
+  }
+}
+
+// ---- updates -----------------------------------------------------------------
+
+function renderUpdates() {
+  const info = state.meta.updates || {};
+  if (!info.available) {
+    $("upd-body").innerHTML = `<div class="notice">${esc(info.reason || "updates aren't available in this copy of kit")}</div>`;
+    $("upd-check").disabled = true;
+    $("upd-apply").disabled = true;
+    return;
+  }
+  $("upd-check").disabled = false;
+  const r = state.updateResult;
+  if (!r) return;
+  if (r.supported === false) {
+    $("upd-body").innerHTML = `<div class="notice">${esc(r.reason || "This copy of kit can't update itself.")}</div>`;
+    $("upd-apply").disabled = true;
+    return;
+  }
+  const warnings = [];
+  if (r.error) warnings.push(`<div class="banner">${esc(r.error)}</div>`);
+  if (r.dirty) warnings.push(`<div class="notice">You have uncommitted changes, so updating is blocked: <span class="mono">${esc((r.dirty_files || []).join(", "))}</span></div>`);
+  if (r.ahead > 0 && r.behind > 0) warnings.push('<div class="notice">Your copy and GitHub have both moved on (diverged). Sort it out with git first.</div>');
+  const incoming = (r.incoming || []).map((c) => `<div class="commit"><span class="mono muted">${esc(String(c.hash || "").slice(0, 7))}</span><span>${esc(c.subject)}</span><span class="spacer"></span><span class="muted small">${esc(c.author || "")} · ${esc(c.date || "")}</span></div>`).join("");
+  const upToDate = !r.error && !r.behind ? '<div class="ok-note">✓ kit is up to date.</div>' : "";
+  $("upd-body").innerHTML = `${warnings.join("")}${upToDate}
+    <div class="stats">
+      <div class="stat"><span class="muted small">branch</span><b class="mono">${esc(r.branch || "?")}</b></div>
+      <div class="stat"><span class="muted small">tracking</span><b class="mono">${esc(r.upstream || "?")}</b></div>
+      <div class="stat"><span class="muted small">new on GitHub</span><b>${esc(r.behind ?? 0)}</b></div>
+      <div class="stat"><span class="muted small">only here</span><b>${esc(r.ahead ?? 0)}</b></div>
+    </div>
+    ${incoming ? `<div class="card" style="box-shadow:none">${incoming}</div>` : ""}
+    <p class="muted small">Checked ${esc(r.checked_at || "")}</p>`;
+  $("upd-apply").disabled = !(r.behind > 0 && !r.dirty && !(r.ahead > 0) && !r.error);
+}
+
+async function checkUpdates() {
+  $("upd-check").disabled = true;
+  $("upd-body").innerHTML = '<span class="spinner"></span>Checking GitHub…';
+  try {
+    state.updateResult = (await post("/api/updates/check")).result;
+  } catch (err) {
+    state.updateResult = { error: err.message };
+  }
+  $("upd-check").disabled = false;
+  renderUpdates();
+}
+
+async function applyUpdate() {
+  $("upd-apply").disabled = true;
+  $("upd-term-wrap").hidden = false;
+  const term = new Terminal($("upd-term"));
+  $("upd-status").innerHTML = '<span class="spinner"></span>updating…';
+  try {
+    const { job } = await post("/api/updates/apply");
+    let result = null;
+    await streamJob(job.id, (event) => {
+      if (event.type === "output") term.write(event.text);
+      else if (event.type === "result") result = event.result;
+      else if (event.type === "exit") {
+        if (event.code === 0) $("upd-status").innerHTML = '<span class="status-ok">✓ updated</span> <span class="muted">- restart kit hub (Ctrl+C, then kit hub) to use the new hub code</span>';
+        else $("upd-status").innerHTML = `<span class="status-bad">✗ update failed</span> <span class="muted">${esc((result && result.error) || event.error || "")}</span>`;
+      }
+    });
+  } catch (err) {
+    $("upd-status").innerHTML = `<span class="status-bad">${esc(err.message)}</span>`;
+  }
+}
+
+// ---- doctor ------------------------------------------------------------------
+
+async function runDoctor() {
+  state.doctorStarted = true;
+  $("doctor-run").disabled = true;
+  const term = new Terminal($("doctor-term"));
+  $("doctor-status").innerHTML = '<span class="spinner"></span>running kit doctor…';
+  try {
+    const { job } = await post("/api/doctor");
+    await streamJob(job.id, (event) => {
+      if (event.type === "output") term.write(event.text);
+      else if (event.type === "exit") {
+        $("doctor-status").innerHTML = event.code === 0
+          ? `<span class="status-ok">✓ all good</span> <span class="muted">· ${event.duration}s</span>`
+          : `<span class="status-bad">✗ doctor found problems</span> <span class="muted">· ${event.duration}s</span>`;
+      }
+    });
+  } catch (err) {
+    $("doctor-status").innerHTML = `<span class="status-bad">${esc(err.message)}</span>`;
+  }
+  $("doctor-run").disabled = false;
+}
+
+// ---- events ------------------------------------------------------------------
+
+document.addEventListener("click", (event) => {
+  const stop = event.target.closest("[data-stop]");
+  if (stop) { stopJob(stop.dataset.stop); return; }
+  const row = event.target.closest(".setting");
+  if (row && event.target.closest("[data-save]")) saveSetting(row, false);
+  if (row && event.target.closest("[data-reset]")) saveSetting(row, true);
+});
+
+function markDirty(event) {
+  const row = event.target.closest(".setting");
+  if (!row || !event.target.matches("[data-control]")) return;
+  row.querySelector("[data-save]").disabled = false;
+  if (row.dataset.type === "bool") event.target.nextElementSibling.textContent = event.target.checked ? "on" : "off";
+}
+document.addEventListener("input", markDirty);
+document.addEventListener("change", markDirty);
+document.addEventListener("keydown", (event) => {
+  const row = event.target.closest && event.target.closest(".setting");
+  if (row && event.key === "Enter" && event.target.matches("input[data-control]")) saveSetting(row, false);
+});
+
+$("filter").addEventListener("input", (event) => { state.filter = event.target.value; renderTools(); });
+$("settings-reload").addEventListener("click", loadSettings);
+$("settings-open").addEventListener("click", async () => {
+  try {
+    const result = await post("/api/settings/open");
+    if (result.dryRun) toast("Dry run - would open the settings file with:", result.command.join(" "));
+    else toast(result.created ? "Created and opened the settings file" : "Opened the settings file", result.path);
+  } catch (err) { toast("Couldn't open the settings file", err.message, true); }
+});
+$("upd-check").addEventListener("click", checkUpdates);
+$("upd-apply").addEventListener("click", applyUpdate);
+$("doctor-run").addEventListener("click", runDoctor);
+window.addEventListener("hashchange", route);
+
+(async function init() {
+  try {
+    const [meta, tools] = await Promise.all([api("/api/meta"), api("/api/tools")]);
+    state.meta = meta;
+    state.tools = tools.tools;
+    state.problems = tools.problems;
+    $("version").textContent = `${meta.platform} · python ${meta.python}`;
+    $("cwd").textContent = meta.kitHome;
+    $("cwd").title = "kit home";
+    renderTools();
+    showBanner("");
+  } catch (err) {
+    showBanner(`Couldn't load kit: ${err.message}`);
+  }
+  await refreshJobs();
+  route();
+  setInterval(() => { if (!document.hidden) refreshJobs(); }, 3000);
+})();
+</script>
+</body>
+</html>

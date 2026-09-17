@@ -16,6 +16,16 @@ kit qr --wifi SSID [--password PASS] [--security WPA|WEP|nopass] [--hidden]
   or the output is piped) it assumes a dark terminal; use `--invert` on a light one.
 - `--error` picks the error-correction level (default `M`); `H` survives more damage but makes a bigger code.
 
+## Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| `qr.invert` | `false` | Swap dark and light by default, for a light terminal (`--invert` / `--no-invert`) |
+
+```
+kit config set qr.invert true
+```
+
 ## Examples
 
 ```

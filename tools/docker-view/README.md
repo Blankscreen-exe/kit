@@ -30,6 +30,17 @@ stop a container before removing it.
 
 On Linux your user needs access to the Docker socket (be in the `docker` group), or run kit with sudo.
 
+## Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| `docker-view.port` | `9900` | Port to try first; the next free one is used if it's taken. `--port` asks for exactly one port. |
+| `docker-view.open` | `true` | Open the dashboard in your browser when it starts (`--open` / `--no-open`) |
+
+```
+kit config set docker-view.open false
+```
+
 ## Examples
 
 ```

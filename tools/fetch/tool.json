@@ -1,4 +1,10 @@
 {
   "category": "system",
-  "aliases": ["neofetch"]
+  "aliases": ["neofetch"],
+  "settings": {
+    "art": {"type": "string", "default": "", "env": "KIT_FETCH_ART", "help": "Art name from the art/ folder, or a path to a text file (empty: the art for this OS)"},
+    "color": {"type": "choice", "choices": ["black", "blue", "cyan", "gray", "green", "magenta", "red", "white", "yellow"], "default": "cyan", "help": "Colour of the labels and of art without colour tokens"},
+    "palette": {"type": "bool", "default": true, "help": "Show the colour swatches under the info"},
+    "stack": {"type": "bool", "default": false, "help": "Always put the art above the info"}
+  }
 }

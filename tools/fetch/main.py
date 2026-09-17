@@ -20,6 +20,7 @@ from typing import Callable
 
 from kitlib import KIT_HOME, color_enabled, die
 from kitlib.figlet import FigletError, render_figlet
+from kitlib.settings import tool_settings
 
 try:
     import psutil
@@ -94,7 +95,6 @@ def art_names() -> list[str]:
 
 
 def resolve_art(choice: str | None) -> Path | None:
-    choice = choice or os.environ.get("KIT_FETCH_ART")
     if choice:
         path = Path(choice).expanduser()
         if path.is_file():
@@ -502,18 +502,24 @@ def main() -> int:
     except (AttributeError, ValueError):
         pass
 
+    conf = tool_settings()
     parser = argparse.ArgumentParser(prog="kit fetch", description="System information next to ASCII art, like neofetch.")
-    parser.add_argument("--art", metavar="NAME|FILE", help="art name from the art/ folder, or a path to a text file")
+    parser.add_argument("--art", metavar="NAME|FILE", default=conf.get("art") or None,
+                        help="art name from the art/ folder, or a path to a text file (setting: fetch.art)")
     parser.add_argument("--figlet", metavar="TEXT", help="use a figlet banner of TEXT as the art instead")
     parser.add_argument("-f", "--font", default="standard", help="figlet font for --figlet (default: standard)")
-    parser.add_argument("--color", default="cyan", choices=sorted(COLORS), help="colour of labels and plain art (default: cyan)")
-    parser.add_argument("--stack", action="store_true", help="always put the art above the info")
-    parser.add_argument("--no-palette", action="store_true", help="hide the colour swatches")
+    parser.add_argument("--color", default=conf.get("color", "cyan"), choices=sorted(COLORS),
+                        help="colour of labels and plain art (setting: fetch.color, default: cyan)")
+    parser.add_argument("--stack", action="store_true", help="always put the art above the info (setting: fetch.stack)")
+    parser.add_argument("--no-stack", dest="stack", action="store_false", help="put the art beside the info when there's room")
+    parser.add_argument("--no-palette", action="store_true", help="hide the colour swatches (setting: fetch.palette)")
+    parser.add_argument("--palette", dest="no_palette", action="store_false", help="show the colour swatches")
     parser.add_argument("--list-art", action="store_true", help="list the bundled art and exit")
+    parser.set_defaults(stack=conf.get("stack", False), no_palette=not conf.get("palette", True))
     args = parser.parse_args()
 
     if args.list_art:
-        default = resolve_art(None)
+        default = resolve_art(conf.get("art") or None)
         for name in art_names():
             marker = "  (default here)" if default is not None and default.stem == name else ""
             print(f"{name}{marker}")

@@ -35,12 +35,22 @@ def _platform() -> str:
     return "macos" if sys.platform == "darwin" else "linux"
 
 
-def find_browser(explicit: str | None = None) -> str | None:
-    """`explicit` (a command name or path) or $KIT_BROWSER when set, else the first Edge/Chrome/Chromium found.
+def configured_browser() -> str:
+    """The [kit] browser setting ($KIT_BROWSER wins over the settings file); "" when not set."""
+    try:
+        from kitlib.settings import kit_settings
+        return kit_settings().get("browser") or ""
+    except Exception:
+        return os.environ.get("KIT_BROWSER", "")
 
-    Returns None when nothing usable is found (including when an explicit choice doesn't exist).
+
+def find_browser(explicit: str | None = None) -> str | None:
+    """`explicit` (a command name or path), else the [kit] browser setting / $KIT_BROWSER, else the first
+    Edge/Chrome/Chromium found.
+
+    Returns None when nothing usable is found (including when a chosen browser doesn't exist).
     """
-    choice = explicit or os.environ.get("KIT_BROWSER")
+    choice = explicit or configured_browser()
     if choice:
         return shutil.which(choice) or (choice if Path(choice).is_file() else None)
 

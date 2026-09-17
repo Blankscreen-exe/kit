@@ -1,4 +1,8 @@
 {
   "category": "docs",
-  "aliases": ["md2pdf"]
+  "aliases": ["md2pdf"],
+  "settings": {
+    "accent": {"type": "string", "default": "#1f6feb", "help": "Colour of main headings, links and table headers (hex or a colour name)"},
+    "paper": {"type": "choice", "choices": ["A4", "Letter", "Legal", "A3", "A5"], "default": "A4", "help": "Page size for PDF output"}
+  }
 }

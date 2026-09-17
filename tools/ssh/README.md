@@ -20,7 +20,17 @@ kit ssh keys
 - `-i` accepts a key name from `~/.ssh` (e.g. `id_ed25519`) or a full path.
 - `show` runs `ssh -G`, which prints the resolved settings without connecting.
 - `keys` lists the public keys in `~/.ssh`, their fingerprints and which hosts use them.
-- `--config PATH` (or `KIT_SSH_CONFIG`) works on a different config file.
+- `--config PATH` works on a different config file; the `ssh.config` setting or `KIT_SSH_CONFIG` makes that the default.
+
+## Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| `ssh.config` | *(~/.ssh/config)* | SSH config file to read and edit. `$KIT_SSH_CONFIG` overrides it, `--config` overrides both. |
+
+```
+kit config set ssh.config D:\work\ssh_config
+```
 
 ## Examples
 
