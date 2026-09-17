@@ -13,13 +13,16 @@ import time
 from datetime import datetime, timedelta
 
 from kitlib import KIT_HOME, die, style
+from kitlib.settings import tool_settings
 
 try:
     from rich.text import Text
+    from textual import on
     from textual.app import App, ComposeResult
     from textual.binding import Binding
     from textual.containers import Center, Horizontal, Vertical
-    from textual.widgets import Button, Digits, Footer, ProgressBar, Static
+    from textual.screen import ModalScreen
+    from textual.widgets import Button, Digits, Footer, Input, Label, ProgressBar, Static
 except ImportError as exc:
     die(f"missing Python package '{exc.name}' - run 'uv sync' in {KIT_HOME} (or re-run the installer)")
 
@@ -279,7 +282,7 @@ Button {
     width: auto;
     height: 3;
     margin: 0 1 0 0;
-    padding: 0 1;
+    padding: 0;
     border: round #3d3935;
     background: #1a1918;
     color: #e8e3dc;
@@ -288,7 +291,7 @@ Button {
 Button:hover { background: #1a1918; border: round #8a847c; color: #ffffff; text-style: none; }
 Button.-active { background: #262422; border: round #8a847c; }
 Button:focus { text-style: none; }
-#toggle { width: 16; }
+#toggle { width: 13; }
 #quit { margin: 0; }
 Button.primary { border: round #d97757; color: #d97757; text-style: bold; }
 Button.primary:hover { border: round #f0a07e; color: #f0a07e; text-style: bold; }
@@ -310,7 +313,113 @@ Footer FooterKey { background: #1a1918; }
 Footer FooterKey .footer-key--key { background: #1a1918; color: #d97757; text-style: bold; }
 Footer FooterKey .footer-key--description { color: #8a847c; }
 Footer FooterKey:hover { background: #262422; }
+
+SetupScreen { align: center middle; background: rgba(0, 0, 0, 0.6); }
+#dialog {
+    width: 64;
+    max-width: 100%;
+    height: auto;
+    max-height: 100%;
+    overflow-y: auto;
+    border: round #d97757;
+    border-title-color: #d97757;
+    border-title-style: bold;
+    background: #211f1d;
+    padding: 1 2;
+}
+#presets { width: 100%; height: 3; margin-bottom: 1; align: center middle; }
+#presets Button { min-width: 0; }
+.field { width: 100%; height: 3; }
+.field Label { width: 12; height: 3; content-align: left middle; color: #e8e3dc; }
+.field Input { width: 1fr; border: round #3d3935; background: #211f1d; padding: 0 1; }
+.field Input:focus { border: round #d97757; background: #211f1d; }
+.field Input > .input--placeholder { color: #6b655e; }
+#dialog Button { background: #211f1d; }
+#dialog Button:hover { background: #211f1d; }
+#setup-hint { color: #8a847c; height: auto; }
+#setup-error { color: #e5857a; height: auto; }
+#dialog-buttons { width: 100%; height: 3; align: right middle; margin-top: 1; }
+#dialog-buttons #start { margin: 0; }
 """
+
+PRESETS = ["1m", "5m", "10m", "15m", "25m", "45m", "1h"]
+
+
+class SetupScreen(ModalScreen):
+    """Pick a duration (or a clock time) and a message. Dismisses with (seconds, message) or None."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, message: str = "") -> None:
+        super().__init__()
+        self.message = message
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog") as dialog:
+            dialog.border_title = " New countdown "
+            with Horizontal(id="presets"):
+                for preset in PRESETS:
+                    yield Button(preset, id=f"preset-{preset}")
+            with Horizontal(classes="field"):
+                yield Label("How long")
+                yield Input(placeholder="90s, 15m, 1h30m, 25:00 or 25", id="duration")
+            with Horizontal(classes="field"):
+                yield Label("Or until")
+                yield Input(placeholder="a clock time: 14:30, 2:30pm, 9am", id="until")
+            with Horizontal(classes="field"):
+                yield Label("Message")
+                yield Input(self.message, placeholder="what it's for (optional)", id="setup-message")
+            yield Static("Click a preset to start straight away, or fill in a time and press enter.", id="setup-hint")
+            yield Static("", id="setup-error")
+            with Horizontal(id="dialog-buttons"):
+                yield Button("Cancel", id="cancel")
+                yield Button("▶ Start", id="start", classes="primary")
+
+    def on_mount(self) -> None:
+        for button in self.query(Button):
+            button.can_focus = False
+        self.query_one("#duration", Input).focus()
+
+    def message_text(self) -> str:
+        return self.query_one("#setup-message", Input).value.strip()
+
+    @on(Button.Pressed, "#presets Button")
+    def preset_clicked(self, event: Button.Pressed) -> None:
+        self.dismiss((parse_duration(str(event.button.label)), self.message_text()))
+
+    @on(Button.Pressed, "#start")
+    def start_clicked(self) -> None:
+        self.start()
+
+    @on(Input.Submitted)
+    def field_submitted(self) -> None:
+        self.start()
+
+    def start(self) -> None:
+        duration = self.query_one("#duration", Input).value.strip()
+        until = self.query_one("#until", Input).value.strip()
+        error = self.query_one("#setup-error", Static)
+        if duration and until:
+            error.update("Fill in either 'How long' or 'Or until', not both.")
+            return
+        if not duration and not until:
+            error.update("Enter how long (e.g. 15m) or a clock time to count down to.")
+            self.query_one("#duration", Input).focus()
+            return
+        try:
+            if duration:
+                seconds = parse_duration(duration)
+            else:
+                now = datetime.now()
+                seconds = (parse_until(until, now) - now).total_seconds()
+        except ParseError as exc:
+            error.update(str(exc)[0].upper() + str(exc)[1:] + ".")
+            return
+        self.dismiss((seconds, self.message_text()))
+
+    @on(Button.Pressed, "#cancel")
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class CountdownApp(App):
@@ -323,14 +432,16 @@ class CountdownApp(App):
         Binding("minus", "less", "-1 min"),
         Binding("plus,equals_sign", "more", "+1 min"),
         Binding("r", "reset", "Reset"),
+        Binding("n", "new_timer", "New"),
         Binding("enter,escape", "dismiss_alert", "Dismiss", show=False),
         Binding("q", "quit_timer", "Quit"),
     ]
 
-    def __init__(self, seconds: float, message: str = "", once: bool = False, notify_desktop: bool = True,
+    def __init__(self, seconds: float | None, message: str = "", once: bool = False, notify_desktop: bool = True,
                  speed: float = 1.0, alert_every: float = ALERT_EVERY) -> None:
         super().__init__()
-        self.timer = Countdown(seconds)
+        # None: nothing to count yet, so the setup dialog opens first
+        self.timer = Countdown(seconds) if seconds is not None else None
         self.message = message
         self.once = once
         self.notify_desktop = notify_desktop
@@ -349,7 +460,7 @@ class CountdownApp(App):
         with Vertical(id="card"):
             yield Static("", id="status")
             with Center():
-                yield Digits(format_clock(self.timer.remaining), id="clock")
+                yield Digits(format_clock(self.timer.remaining) if self.timer else "--:--", id="clock")
             yield Static(self.message, id="message")
             with Center():
                 yield ProgressBar(total=100, show_eta=False, id="progress")
@@ -358,6 +469,7 @@ class CountdownApp(App):
                 yield Button("−1m", id="less")
                 yield Button("+1m", id="more")
                 yield Button("↺ Reset", id="reset")
+                yield Button("+ New", id="new")
                 yield Button("✕ Quit", id="quit")
         yield Footer()
 
@@ -367,12 +479,16 @@ class CountdownApp(App):
         self.query_one("#message").display = bool(self.message)
         self.set_interval(0.1, self.tick)
         self.refresh_view()
+        if self.timer is None:
+            self.action_new_timer()
 
     # --- timing ---
 
     def tick(self) -> None:
         now = time.monotonic()
         delta, self._last_tick = (now - self._last_tick) * self.speed, now
+        if self.timer is None:
+            return
         if self.timer.advance(delta):
             self.finish()
         elif self.alerting and not self.once:
@@ -401,6 +517,8 @@ class CountdownApp(App):
 
     def refresh_view(self) -> None:
         timer = self.timer
+        if timer is None:
+            return
         screen = self.screen_stack[0]
         flashing = self.alerting and int(time.monotonic() * 2) % 2 == 0
         screen.set_class(not timer.running and not timer.done, "-paused")
@@ -454,11 +572,17 @@ class CountdownApp(App):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         handlers = {
             "toggle": self.action_toggle, "less": self.action_less, "more": self.action_more,
-            "reset": self.action_reset, "quit": self.action_quit_timer,
+            "reset": self.action_reset, "new": self.action_new_timer, "quit": self.action_quit_timer,
         }
         handler = handlers.get(event.button.id or "")
         if handler:
             handler()
+
+    def check_action(self, action: str, parameters: tuple) -> bool | None:
+        # Until a countdown exists, only "new" and "quit" make sense.
+        if self.timer is None and action in ("toggle", "less", "more", "reset", "dismiss_alert"):
+            return False
+        return True
 
     def action_toggle(self) -> None:
         if self.timer.done:
@@ -498,8 +622,28 @@ class CountdownApp(App):
         self._last_tick = time.monotonic()
         self.refresh_view()
 
+    def action_new_timer(self) -> None:
+        if isinstance(self.screen, SetupScreen):
+            return
+        self.push_screen(SetupScreen(self.message), self.start_timer)
+
+    def start_timer(self, choice: tuple[float, str] | None) -> None:
+        if choice is None:
+            if self.timer is None:
+                self.exit(return_code=130)  # cancelled before anything started
+            return
+        seconds, self.message = choice
+        self.timer = Countdown(seconds)
+        self.alerting = False
+        self.finished_at = None
+        self._last_tick = time.monotonic()
+        message = self.query_one("#message", Static)
+        message.update(self.message)
+        message.display = bool(self.message)
+        self.refresh_view()
+
     def action_quit_timer(self) -> None:
-        self.exit(return_code=0 if self.timer.done else 130)
+        self.exit(return_code=0 if self.timer and self.timer.done else 130)
 
 
 # --- entry point -----------------------------------------------------------------------------
@@ -509,10 +653,15 @@ def main() -> int:
     parser.add_argument("duration", nargs="?", help="how long: 90s, 15m, 1h30m, 25:00, 1:30:00 or 25 (minutes)")
     parser.add_argument("message", nargs="*", help="what the countdown is for, shown on screen and in the alert")
     parser.add_argument("--until", metavar="TIME", help="count down to a clock time instead, e.g. 14:30 or 2:30pm")
-    parser.add_argument("--once", action="store_true", help="alert once instead of repeating until dismissed")
-    parser.add_argument("--no-notify", action="store_true", help="no desktop notification or system sound (the terminal still beeps)")
+    parser.add_argument("--once", action="store_true", help="alert once instead of repeating until dismissed (setting: countdown.once)")
+    parser.add_argument("--repeat", dest="once", action="store_false", help="repeat the alert until dismissed")
+    parser.add_argument("--no-notify", dest="notify", action="store_false",
+                        help="no desktop notification or system sound, the terminal still beeps (setting: countdown.notify)")
+    parser.add_argument("--notify", dest="notify", action="store_true", help="desktop notification and system sound when time is up")
     parser.add_argument("--plain", action="store_true", help="a single updating line instead of the full-screen timer")
     parser.add_argument("--speed", type=float, default=1.0, help=argparse.SUPPRESS)  # testing: run the clock faster
+    conf = tool_settings()
+    parser.set_defaults(once=conf.get("once", False), notify=conf.get("notify", True))
     args = parser.parse_args()
 
     words = list(args.message)
@@ -524,8 +673,10 @@ def main() -> int:
             seconds = (parse_until(args.until, now) - now).total_seconds()
         elif args.duration:
             seconds = parse_duration(args.duration)
+        elif args.plain:
+            parser.error("--plain needs a duration (e.g. 15m) or --until TIME")
         else:
-            parser.error("give a duration (e.g. 15m) or --until TIME")
+            seconds = None  # the full-screen timer asks for one
     except ParseError as exc:
         die(str(exc))
     if args.speed <= 0:
@@ -533,8 +684,8 @@ def main() -> int:
     message = " ".join(words).strip()
 
     if args.plain:
-        return run_plain(seconds, message, notify=not args.no_notify, speed=args.speed)
-    app = CountdownApp(seconds, message, once=args.once, notify_desktop=not args.no_notify, speed=args.speed)
+        return run_plain(seconds, message, notify=args.notify, speed=args.speed)
+    app = CountdownApp(seconds, message, once=args.once, notify_desktop=args.notify, speed=args.speed)
     app.run()
     return app.return_code or 0
 

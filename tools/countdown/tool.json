@@ -1,4 +1,9 @@
 {
   "category": "productivity",
-  "aliases": ["timer"]
+  "aliases": ["timer"],
+  "interactive": true,
+  "settings": {
+    "once": {"type": "bool", "default": false, "help": "Alert once instead of repeating until dismissed"},
+    "notify": {"type": "bool", "default": true, "help": "Desktop notification and system sound when time is up"}
+  }
 }
