@@ -1,0 +1,11 @@
+{
+  "category": "media",
+  "aliases": ["ff"],
+  "settings": {
+    "ffmpeg": {"type": "string", "default": "", "env": "KIT_FFMPEG", "help": "ffmpeg executable or the folder it's in (empty: find it automatically)"},
+    "crf": {"type": "int", "default": 28, "min": 0, "max": 51, "help": "Quality 'compress' uses without --crf/--size: lower is better and bigger (18-28 is typical)"},
+    "gif_fps": {"type": "int", "default": 12, "min": 1, "max": 50, "help": "Frames per second for 'gif'"},
+    "gif_width": {"type": "int", "default": 480, "min": 0, "max": 4096, "help": "Maximum GIF width in pixels (0: keep the video's width)"},
+    "audio_format": {"type": "choice", "choices": ["mp3", "m4a", "wav", "flac", "opus"], "default": "mp3", "help": "Format 'audio' extracts to without --format"}
+  }
+}
