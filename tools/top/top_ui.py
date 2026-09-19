@@ -352,7 +352,7 @@ class TopApp(App):
                 current = table.coordinate_to_cell_key(Coordinate(table.cursor_row, 0)).row_key.value
             except Exception:
                 current = None
-        old_row, scroll = table.cursor_row, table.scroll_y
+        old_row, scroll_x, scroll_y = table.cursor_row, table.scroll_x, table.scroll_y
         table.clear()
         for key, cells in rows:
             table.add_row(*cells, key=key)
@@ -364,7 +364,10 @@ class TopApp(App):
                 target = old_row
         if table.row_count:
             table.move_cursor(row=min(max(target, 0), table.row_count - 1), scroll=False)
-            table.scroll_to(y=scroll, animate=False)
+            table.scroll_to(x=scroll_x, y=scroll_y, animate=False)
+            # Column widths are only measured on the next refresh, so until then the table is too narrow
+            # to scroll sideways and the x above gets clamped to 0: set it again once they're known.
+            table.call_after_refresh(table.scroll_to, x=scroll_x, y=scroll_y, animate=False)
 
     def fill_processes(self) -> None:
         table = self.query_one("#proc-table", DataTable)
