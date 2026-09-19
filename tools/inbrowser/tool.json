@@ -1,0 +1,7 @@
+{
+  "category": "utils",
+  "aliases": ["ib"],
+  "settings": {
+    "window": {"type": "bool", "default": false, "help": "Open pages in their own app window instead of a browser tab"}
+  }
+}

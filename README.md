@@ -45,6 +45,7 @@ kit - personal toolbox
     time            t              Time arithmetic for tracking hours: span between clock times, duration differences and totals.
 
   UTILS
+    inbrowser       ib             Open inbrowser.app, a big set of tools that run inside your browser, offline.
     qr                             Show a QR code in the terminal for any text or URL, or save it as a PNG or SVG.
 
 run:       kit <tool> [args]      docs: kit help <tool>
@@ -299,6 +300,7 @@ install.sh        Linux/macOS installer / uninstaller
 | `KIT_BACKUP_DIR` | Where `kit ssh`, `kit pathfix`, `kit env` and `kit hosts` save backups before changing files |
 | `KIT_PAD_DIR` | Where `kit pad` keeps its pads (default `%APPDATA%\kit\pad` / `~/.local/share/kit/pad`) |
 | `KIT_TOP_DATA` | Where `kit top` keeps its list of trusted programs |
+| `KIT_INBROWSER_DATA` | Where `kit inbrowser` caches the list of inbrowser.app tools |
 | `KIT_FFMPEG` | ffmpeg `kit media` uses: the program or its folder (overrides `media.ffmpeg`) |
 | `KIT_STATE_DIR` | Where kit keeps its update-check state |
 | `NO_COLOR` | Turn off coloured output |
