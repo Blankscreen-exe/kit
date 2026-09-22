@@ -24,7 +24,7 @@ BUILTINS = {
     "path": ("[tool]", "print kit's folder, or a tool's folder"),
     "config": ("[list|get|set|unset|edit|path]", "view and change settings for kit and its tools"),
     "update": ("[--check]", "update kit from GitHub, then sync packages and run doctor"),
-    "hub": ("[--port N] [--no-open]", "open the kit dashboard in your browser"),
+    "hub": ("[--port N] [--no-open] [--lan]", "open the kit dashboard in your browser"),
     "share": ("[start|stop|list|logs]", "launch web tools in the background and manage them centrally"),
 }
 RESERVED = frozenset(BUILTINS) | {"_complete"}
@@ -192,6 +192,13 @@ def cmd_help(args: list[str]) -> int:
             print(f"  kit {signatures[name].ljust(width)}  {style(text, 'dim')}")
         print()
         print("Run 'kit' on its own to list tools, 'kit help <tool>' for a tool's docs.")
+        return 0
+
+    if args[0] in BUILTINS:
+        hint, text = BUILTINS[args[0]]
+        print(f"{style('kit ' + args[0], 'bold', 'green')} {style(hint, 'dim')}")
+        print(f"  {text}")
+        print(style(f"  it's a built-in, not a tool - run 'kit {args[0]} --help' for its full options", "dim"))
         return 0
 
     tool = _find(registry.discover(RESERVED), args[0])

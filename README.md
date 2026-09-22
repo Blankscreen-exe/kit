@@ -22,7 +22,7 @@ kit - personal toolbox
   NETWORK
     hosts                          View and edit the hosts file safely: list, add, block, disable and remove entries, with a backup before every change.
     internet-speed                 Test your connection's latency, jitter, download and upload speed against Cloudflare, and time TCP connections to any host.
-    notify                          Send a desktop notification to another PC on your LAN or tailnet.
+    notify                         Send a desktop notification to another PC on your LAN or tailnet.
     port            ports          See what's using network ports, stop it, and find free ports.
     serve                          Share a folder, or an app running on this computer, with other devices on your network, with a QR code for your phone.
     ssh                            List, add, remove and connect to the SSH hosts saved in your ~/.ssh/config.
@@ -109,8 +109,10 @@ the block in place, and uninstalling removes only that block. Uninstalling leave
 `kit share start` runs any tool with `"web": true` in the background (output goes to a log file, not your
 terminal), detects its URL, and remembers its pid so `kit share list/stop` see and can stop it later, from
 any terminal - and so can `kit share stop --all`. Add `--tailscale` to also point `tailscale serve` at it
-(needs [Tailscale](https://tailscale.com) installed and logged in), so a device on your tailnet can reach
-it without you sharing a token by hand.
+(needs [Tailscale](https://tailscale.com) installed and logged in), so a device on your tailnet can reach it
+over a private link instead of your LAN or the public internet. You still need to get that link to the other
+device somehow - `kit notify` (a web tool itself, so it works the same way: `kit share start notify
+--tailscale -- serve`) sends it as a real desktop notification instead of retyping it.
 
 ## Settings
 
@@ -177,9 +179,9 @@ prints `kit: an update is available (N new commits) - run: kit update` after a c
 `kit hub` opens a local dashboard in your browser (`--no-open` just prints the address, `--port N` picks the port).
 
 - **Tools**: every tool with its docs. Run command-line tools with arguments and watch their output live
-  (Stop ends the whole process). Web tools (docker-view, serve, merge-pdf) get a Launch button and an Open link;
-  terminal apps (pomodoro, countdown) open in a new terminal window. Input is closed, so tools that ask
-  for confirmation need `--yes`.
+  (Stop ends the whole process). Web tools (docker-view, serve, merge-pdf, notify) get a Launch button and an
+  Open link; terminal apps (pomodoro, countdown) open in a new terminal window. Input is closed, so tools that
+  ask for confirmation need `--yes`.
 - **Settings**: every setting for kit and each tool, with its default, where the current value comes from
   (file / environment variable / default), Save and Reset.
 - **Updates**: check GitHub for new commits and update in place (restart the hub afterwards).
@@ -288,7 +290,7 @@ are picked up exactly like `tools/`. This is handy for private or work-only tool
 
 ```text
 kit.py            entry point
-core/             registry (finds tools), runner, CLI, `kit new` templates, `kit config`, `kit update`, hub/
+core/             registry (finds tools), runner, CLI, `kit new` templates, `kit config`, `kit update`, hub/, `kit share`
 lib/kitlib/       helpers Python tools can import (output, settings, figlet, QR codes, browser, clipboard)
 tools/            one folder per tool
 vendor/           bundled third-party binaries (figlet for Windows)
@@ -315,5 +317,5 @@ install.sh        Linux/macOS installer / uninstaller
 | `KIT_TOP_DATA` | Where `kit top` keeps its list of trusted programs |
 | `KIT_INBROWSER_DATA` | Where `kit inbrowser` caches the list of inbrowser.app tools |
 | `KIT_FFMPEG` | ffmpeg `kit media` uses: the program or its folder (overrides `media.ffmpeg`) |
-| `KIT_STATE_DIR` | Where kit keeps its update-check state |
+| `KIT_STATE_DIR` | Where kit keeps its update-check state and `kit share`'s registry and logs |
 | `NO_COLOR` | Turn off coloured output |

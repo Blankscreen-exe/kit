@@ -176,7 +176,7 @@ def _format_duration(seconds: float) -> str:
 # `tailscale serve` configures the already-running tailscaled daemon to proxy a port to
 # this machine's tailnet address over HTTPS; it's a one-shot call, not a process to track -
 # unlike a public tunnel (cloudflared etc.), which stays running and would need its own pid
-# tracked alongside the app's. That's not built yet - see `kit help share`.
+# tracked alongside the app's. That's not built yet.
 
 def _decode(value: str | bytes | None) -> str:
     """subprocess.TimeoutExpired's .stdout/.stderr come back as bytes even with text=True,
