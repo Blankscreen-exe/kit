@@ -97,13 +97,19 @@ the block in place, and uninstalling removes only that block. Uninstalling leave
 | `kit help <tool>` | Show the tool's README plus where it lives |
 | `kit <tool> [args]` | Run a tool; aliases work too (`kit t sum 1:30 2h`) |
 | `kit hub` | Open the kit dashboard in your browser |
-| `kit share start <tool> [--name N] [-- args]` | Launch a web tool in the background, tracked by kit |
+| `kit share start <tool> [--name N] [--tailscale] [-- args]` | Launch a web tool in the background, tracked by kit |
 | `kit share list` \| `stop <name>\|--all` \| `logs <name> [-f]` | See, stop or read the output of what's currently shared |
 | `kit config ...` | See and change settings for kit and every tool |
 | `kit update` | Update kit from GitHub, install packages and run doctor |
 | `kit new <name> [--lang py\|ps1\|sh]` | Create a new tool folder from a template |
 | `kit doctor` | Check the install, the uv environment, the settings file and every tool folder |
 | `kit path [tool]` | Print a folder, e.g. `code (kit path)` or `cd (kit path time)` |
+
+`kit share start` runs any tool with `"web": true` in the background (output goes to a log file, not your
+terminal), detects its URL, and remembers its pid so `kit share list/stop` see and can stop it later, from
+any terminal - and so can `kit share stop --all`. Add `--tailscale` to also point `tailscale serve` at it
+(needs [Tailscale](https://tailscale.com) installed and logged in), so a device on your tailnet can reach
+it without you sharing a token by hand.
 
 ## Settings
 
