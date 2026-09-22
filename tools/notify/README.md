@@ -51,6 +51,23 @@ kit share start notify --tailscale -- serve
 
 Send it the address that prints (not discovery - that's LAN-only), from the other machine.
 
+### Firewall
+
+The first time `kit notify serve --lan` runs, Windows Firewall may ask whether Python may accept
+connections, or simply block it silently if that prompt gets missed or dismissed. If another
+machine can't find or reach you: allow Python on **Private networks** under *Windows Security >
+Firewall & network protection > Allow an app through firewall*, or add rules directly (PowerShell,
+as Administrator):
+
+```powershell
+New-NetFirewallRule -DisplayName "kit notify" -Direction Inbound -Protocol TCP -LocalPort 8899 -Action Allow
+New-NetFirewallRule -DisplayName "kit notify discovery" -Direction Inbound -Protocol UDP -LocalPort 8898 -Action Allow
+```
+
+Also check the network is set to **Private**, not Public, under *Settings > Network & Internet* -
+Public profiles block a lot more by default, including broadcast traffic that discovery relies on.
+On Linux with ufw: `sudo ufw allow 8899/tcp` and `sudo ufw allow 8898/udp`.
+
 ## Examples
 
 ```
