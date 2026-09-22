@@ -1,4 +1,7 @@
 {
   "category": "network",
-  "aliases": ["ports"]
+  "aliases": ["ports"],
+  "settings": {
+    "refresh": {"type": "float", "default": 2, "min": 0.5, "max": 60, "help": "Seconds between refreshes of the live view (kit port --live)"}
+  }
 }
