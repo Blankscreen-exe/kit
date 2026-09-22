@@ -6,6 +6,7 @@ import argparse
 import hmac
 import json
 import os
+import re
 import secrets
 import socket
 import subprocess
@@ -28,6 +29,7 @@ MAX_BODY = 8_000
 DISCOVER_MAGIC = "kit-notify-discover-v1"
 DISCOVER_REPLY_MAGIC = "kit-notify-here-v1"
 DISCOVER_WAIT = 1.5  # seconds to collect replies to a broadcast
+URL_RE = re.compile(r"https?://[^\s'\"<>]+")
 REPLAY_WINDOW = 30  # seconds a discovery query/reply stays valid for - limits replaying a captured one
 
 
@@ -76,13 +78,30 @@ def show_notification(title: str, message: str) -> None:
         if IS_WINDOWS:
             # No extra install needed: WinForms' tray-balloon API, part of every .NET-equipped
             # Windows box, rather than the newer toast APIs that need an extra module.
+            #
+            # The process has to stay alive - and running a real message loop, not just
+            # sleeping - for a click to have anywhere to land: BalloonTipClicked only fires
+            # while Application.Run() is pumping events. It exits on either a click (opening
+            # the first link found in the message first, if any) or the balloon closing on its
+            # own; the 15s timeout below is only a safety net if neither ever fires.
+            link_match = URL_RE.search(message)
+            link = link_match.group(0).rstrip(".,;)") if link_match else ""
+            click_handler = (
+                f"$n.add_BalloonTipClicked({{ Start-Process {_powershell_string(link)}; "
+                "[System.Windows.Forms.Application]::ExitThread() }); "
+            ) if link else ""
             script = (
                 "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; "
                 "$n = New-Object System.Windows.Forms.NotifyIcon; "
                 "$n.Icon = [System.Drawing.SystemIcons]::Information; "
                 f"$n.BalloonTipTitle = {_powershell_string(title)}; "
                 f"$n.BalloonTipText = {_powershell_string(message)}; "
-                "$n.Visible = $true; $n.ShowBalloonTip(8000); Start-Sleep -Seconds 1; $n.Dispose()"
+                "$n.Visible = $true; "
+                f"{click_handler}"
+                "$n.add_BalloonTipClosed({ [System.Windows.Forms.Application]::ExitThread() }); "
+                "$n.ShowBalloonTip(8000); "
+                "[System.Windows.Forms.Application]::Run(); "
+                "$n.Dispose()"
             )
             subprocess.run(["powershell", "-NoProfile", "-Command", script],
                            capture_output=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
