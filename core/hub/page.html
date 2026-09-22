@@ -145,6 +145,12 @@ pre.term .ln { min-height: 1.45em; }
 .toast { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--green); border-radius: 8px; padding: 8px 12px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); max-width: 460px; font-size: 13px; }
 .toast.error { border-left-color: var(--red); }
 .toast .mono { color: var(--muted); display: block; margin-top: 2px; overflow-wrap: anywhere; }
+
+/* read-only viewers (kit hub --lan, seen from another device) */
+body.readonly .tab[data-tab="settings"], body.readonly .tab[data-tab="updates"], body.readonly .tab[data-tab="doctor"] { display: none; }
+body.readonly #act-run, body.readonly #act-launch, body.readonly #act-terminal, body.readonly #act-stop,
+body.readonly [data-stop], body.readonly [data-save], body.readonly [data-reset],
+body.readonly #settings-open, body.readonly #settings-reload { display: none; }
 </style>
 </head>
 <body>
@@ -164,6 +170,7 @@ pre.term .ln { min-height: 1.45em; }
 
 <main>
   <div class="banner" id="banner" hidden></div>
+  <div class="notice" id="readonly-notice" hidden>Read-only view - open kit hub from the machine it's running on to run, stop or change anything.</div>
 
   <section class="view" id="view-tools">
     <div id="launches"></div>
@@ -876,6 +883,10 @@ window.addEventListener("hashchange", route);
     $("version").textContent = `${meta.platform} · python ${meta.python}`;
     $("cwd").textContent = meta.kitHome;
     $("cwd").title = "kit home";
+    if (!meta.canControl) {
+      document.body.classList.add("readonly");
+      $("readonly-notice").hidden = false;
+    }
     renderTools();
     showBanner("");
   } catch (err) {

@@ -1,6 +1,5 @@
 {
   "category": "network",
-  "aliases": ["share"],
   "web": true,
   "settings": {
     "port": {"type": "int", "default": 8000, "min": 1, "max": 65535, "help": "Port to try first (the next free one is used if it's taken)"},

@@ -24,7 +24,8 @@ BUILTINS = {
     "path": ("[tool]", "print kit's folder, or a tool's folder"),
     "config": ("[list|get|set|unset|edit|path]", "view and change settings for kit and its tools"),
     "update": ("[--check]", "update kit from GitHub, then sync packages and run doctor"),
-    "hub": ("[--port N] [--no-open]", "open the kit dashboard in your browser"),
+    "hub": ("[--port N] [--no-open] [--lan]", "open the kit dashboard in your browser"),
+    "share": ("[start|stop|list|logs]", "launch web tools in the background and manage them centrally"),
 }
 RESERVED = frozenset(BUILTINS) | {"_complete"}
 
@@ -33,6 +34,7 @@ MODULE_COMMANDS = {
     "config": "core.config_cmd",
     "update": "core.update",
     "hub": "core.hub",
+    "share": "core.share",
 }
 # Commands after which the daily "update available" notice is never printed.
 NO_UPDATE_NOTICE = {"_complete", "update", "hub"}
@@ -137,31 +139,40 @@ def cmd_list(args: list[str]) -> int:
         t for t in reg.tools.values()
         if not needle or needle in " ".join([t.name, *t.aliases, t.summary, t.category]).lower()
     ]
+    matched_builtins = [name for name, (_, text) in BUILTINS.items() if needle in f"{name} {text}".lower()] if needle else []
 
     print(f"{style('kit', 'bold', 'cyan')} {style('- personal toolbox', 'dim')}   {style(KIT_HOME, 'dim')}")
     print()
-    if not tools:
-        print("  no tools match" if needle else "  no tools yet - create one with: kit new <name>")
+    if not tools and not matched_builtins:
+        print("  no tools or commands match" if needle else "  no tools yet - create one with: kit new <name>")
         print()
     else:
-        name_width = max(len(t.name) for t in tools)
-        alias_width = max(len(", ".join(t.aliases)) for t in tools)
-        by_category: dict[str, list[Tool]] = {}
-        for tool in sorted(tools, key=lambda t: (t.category, t.name)):
-            by_category.setdefault(tool.category, []).append(tool)
-        for category, items in by_category.items():
-            print(f"  {style(category.upper(), 'bold')}")
-            for tool in items:
-                if tool.supported:
-                    columns = [style(tool.name.ljust(name_width), "green")]
-                    summary = tool.summary or style("(no summary - add a README.md)", "dim")
-                else:
-                    columns = [style(tool.name.ljust(name_width), "dim")]
-                    summary = style(f"{tool.summary} (only on {', '.join(tool.available_on)})".strip(), "dim")
-                if alias_width:
-                    columns.append(style(", ".join(tool.aliases).ljust(alias_width), "dim"))
-                columns.append(summary)
-                print("    " + "  ".join(columns))
+        if tools:
+            name_width = max(len(t.name) for t in tools)
+            alias_width = max(len(", ".join(t.aliases)) for t in tools)
+            by_category: dict[str, list[Tool]] = {}
+            for tool in sorted(tools, key=lambda t: (t.category, t.name)):
+                by_category.setdefault(tool.category, []).append(tool)
+            for category, items in by_category.items():
+                print(f"  {style(category.upper(), 'bold')}")
+                for tool in items:
+                    if tool.supported:
+                        columns = [style(tool.name.ljust(name_width), "green")]
+                        summary = tool.summary or style("(no summary - add a README.md)", "dim")
+                    else:
+                        columns = [style(tool.name.ljust(name_width), "dim")]
+                        summary = style(f"{tool.summary} (only on {', '.join(tool.available_on)})".strip(), "dim")
+                    if alias_width:
+                        columns.append(style(", ".join(tool.aliases).ljust(alias_width), "dim"))
+                    columns.append(summary)
+                    print("    " + "  ".join(columns))
+                print()
+        if matched_builtins:
+            print(f"  {style('COMMANDS', 'bold')}")
+            width = max(len(name) for name in matched_builtins)
+            for name in matched_builtins:
+                _, text = BUILTINS[name]
+                print(f"    {style(('kit ' + name).ljust(width + 4), 'green')}  {style(text, 'dim')}")
             print()
 
     print(f"{style('run:', 'bold')}       kit <tool> [args]      {style('docs:', 'bold')} kit help <tool>")
@@ -181,6 +192,13 @@ def cmd_help(args: list[str]) -> int:
             print(f"  kit {signatures[name].ljust(width)}  {style(text, 'dim')}")
         print()
         print("Run 'kit' on its own to list tools, 'kit help <tool>' for a tool's docs.")
+        return 0
+
+    if args[0] in BUILTINS:
+        hint, text = BUILTINS[args[0]]
+        print(f"{style('kit ' + args[0], 'bold', 'green')} {style(hint, 'dim')}")
+        print(f"  {text}")
+        print(style(f"  it's a built-in, not a tool - run 'kit {args[0]} --help' for its full options", "dim"))
         return 0
 
     tool = _find(registry.discover(RESERVED), args[0])

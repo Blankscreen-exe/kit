@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, urlparse
 from kitlib import die
 from kitlib import settings as settings_api
 
-from core import registry, runner
+from core import registry, runner, share
 from core.registry import KIT_HOME, TOOLS_DIR, Tool, current_platform
 
 PAGE = Path(__file__).resolve().parent / "page.html"
@@ -117,6 +117,7 @@ class Job:
         self.stopped = False
         self._size = 0
         self._scan = ""
+        self.share_name: str | None = None  # set for launch jobs: their name in core.share's registry
 
     @property
     def done(self) -> bool:
@@ -141,6 +142,8 @@ class Job:
             if match:
                 self.url = match.group(0).rstrip(".,;)")
                 self.emit({"type": "url", "url": self.url})
+                if self.share_name:
+                    share.update_url(self.share_name, self.url)
         self.emit({"type": "output", "text": text})
 
     def finish(self, code: int, error: str | None = None) -> None:
@@ -154,6 +157,8 @@ class Job:
                 event["error"] = error
             self.events.append(event)
             self.cond.notify_all()
+        if self.share_name:
+            share.unregister(self.share_name)
 
     def summary(self) -> dict:
         return {
@@ -403,6 +408,25 @@ def jsonable(value: object) -> object:
     return json.loads(json.dumps(value, default=str))
 
 
+def this_machine_ip() -> str:
+    """Best-effort: the address this machine would be reached at on the LAN."""
+    import socket
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.connect(("8.8.8.8", 80))  # no packets are sent; this just picks the interface
+        return sock.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        sock.close()
+
+
+# Readable without the token when --lan is on: enough to show what's running and its links,
+# nothing that reveals folder paths, settings, or any tool's live output.
+LAN_PUBLIC_GET_PATHS = {"/api/meta", "/api/tools", "/api/jobs"}
+
+
 # --- server ---------------------------------------------------------------------------
 
 class HubServer(ThreadingHTTPServer):
@@ -410,11 +434,15 @@ class HubServer(ThreadingHTTPServer):
     # On Windows SO_REUSEADDR lets a second server bind a port that's already in use.
     allow_reuse_address = not IS_WINDOWS
 
-    def __init__(self, port: int, token: str) -> None:
-        super().__init__(("127.0.0.1", port), Handler)
+    def __init__(self, port: int, token: str, lan: bool = False) -> None:
+        super().__init__(("0.0.0.0" if lan else "127.0.0.1", port), Handler)
         self.token = token
+        self.lan = lan
+        self.own_ip = this_machine_ip() if lan else "127.0.0.1"
         self.cookie_name = f"kit_hub_{port}"
         self.allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        if lan:
+            self.allowed_hosts.add(f"{self.own_ip}:{port}")
         self.allowed_origins = {f"http://{host}" for host in self.allowed_hosts}
         self.cwd = os.getcwd()
         self.jobs: dict[str, Job] = {}
@@ -461,6 +489,18 @@ class HubServer(ThreadingHTTPServer):
         job = Job(kind, tool.name, display_command(tool.name, args))
         self.add_job(job)
         start_process(job, command, output_env(runner.tool_env(tool)), self.cwd)
+        if kind == "launch" and job.process is not None:
+            # tracked in core.share's registry too, so `kit share list/stop` see and can
+            # stop it the same as anything started from the command line.
+            job.share_name = share.unique_name(tool.name)
+            create_time = None
+            try:
+                import psutil
+
+                create_time = psutil.Process(job.process.pid).create_time()
+            except Exception:
+                pass
+            share.register(job.share_name, tool.name, job.process.pid, self.cwd, create_time=create_time)
         return {"job": job.summary()}
 
     def start_run(self, body: dict) -> dict:
@@ -630,6 +670,14 @@ class Handler(BaseHTTPRequestHandler):
     def authorized(self) -> bool:
         return hmac.compare_digest(self.request_token().encode(), self.server.token.encode())
 
+    def client_is_local(self) -> bool:
+        host = self.client_address[0]
+        return host in ("127.0.0.1", "::1") or host == self.server.own_ip
+
+    def can_control(self) -> bool:
+        """Whether this request may run, stop or change anything - not just look."""
+        return self.authorized() and self.client_is_local()
+
     # -- GET
 
     def do_GET(self) -> None:
@@ -643,7 +691,7 @@ class Handler(BaseHTTPRequestHandler):
                 # Swap the token in the address for a cookie, so it doesn't linger in the address bar.
                 cookie = f"{self.server.cookie_name}={self.server.token}; HttpOnly; SameSite=Strict; Path=/"
                 return self.send_body(HTTPStatus.SEE_OTHER, b"", "text/plain", {"Location": "/", "Set-Cookie": cookie})
-            if not self.authorized():
+            if not self.authorized() and not self.server.lan:
                 return self.send_page(HTTPStatus.UNAUTHORIZED, UNAUTHORIZED_PAGE)
             return self.send_page(HTTPStatus.OK, PAGE.read_text(encoding="utf-8"))
 
@@ -651,7 +699,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_body(HTTPStatus.NO_CONTENT, b"", "image/x-icon")
         if not url.path.startswith("/api/"):
             return self.send_error_json(HTTPStatus.NOT_FOUND, "not found")
-        if not self.authorized():
+        public = self.server.lan and url.path in LAN_PUBLIC_GET_PATHS
+        if not public and not self.authorized():
             return self.send_error_json(HTTPStatus.UNAUTHORIZED, "missing or invalid token - open the address printed in the terminal")
 
         params = parse_qs(url.query)
@@ -660,7 +709,7 @@ class Handler(BaseHTTPRequestHandler):
             if stream:
                 return self.stream_job(stream.group(1), params.get("from", ["0"])[0])
             if url.path == "/api/meta":
-                payload: object = self.server.meta()
+                payload: object = {**self.server.meta(), "canControl": self.can_control()}
             elif url.path == "/api/tools":
                 payload = tools_payload()
             elif url.path == "/api/tool":
@@ -721,6 +770,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self.host_ok():
             return self.send_error_json(HTTPStatus.FORBIDDEN, "unexpected Host header")
+        if not self.client_is_local():
+            return self.send_error_json(HTTPStatus.FORBIDDEN,
+                                        "this can only be done from the machine running kit hub")
         origin = self.headers.get("Origin")
         if origin is not None and origin not in self.server.allowed_origins:
             return self.send_error_json(HTTPStatus.FORBIDDEN, "cross-origin request rejected")
@@ -775,12 +827,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(HTTPStatus.OK, payload)
 
 
-def start_server(port: int, explicit: bool, token: str) -> HubServer:
+def start_server(port: int, explicit: bool, token: str, lan: bool = False) -> HubServer:
     candidates = [port] if explicit else range(port, min(port + PORT_ATTEMPTS, 65536))
     last_error: OSError | None = None
     for candidate in candidates:
         try:
-            return HubServer(candidate, token)
+            return HubServer(candidate, token, lan)
         except OSError as exc:
             last_error = exc
     if explicit:

@@ -26,15 +26,24 @@ def main(args: list[str]) -> int:
     parser.add_argument("--port", type=int,
                         help=f"port to listen on (default: {settings['hub_port']} from kit.hub_port, or the next free one)")
     parser.add_argument("--no-open", action="store_true", help="don't open the dashboard in your browser")
+    parser.add_argument("--lan", action="store_true",
+                        help="also reachable from other devices on this network, read-only for them - "
+                             "only this machine can run, stop or change anything")
     options = parser.parse_args(args)
 
     token = secrets.token_urlsafe(24)
-    server = start_server(options.port or settings["hub_port"], options.port is not None, token)
-    url = f"http://127.0.0.1:{server.server_address[1]}/?token={token}"
+    server = start_server(options.port or settings["hub_port"], options.port is not None, token, options.lan)
+    host_shown = server.own_ip if options.lan else "127.0.0.1"
+    url = f"http://{host_shown}:{server.server_address[1]}/?token={token}"
     print(f"{style('kit hub', 'bold', 'cyan')}  the kit dashboard")
     print(f"  open      {style(url, 'bold')}")
     print(f"  settings  {config_path()}")
-    print(style("  only reachable from this computer - press Ctrl+C to stop", "dim"), flush=True)
+    if options.lan:
+        print(style(f"  reachable on this network too, at http://{server.own_ip}:{server.server_address[1]}/ - "
+                    "anyone there can see what's running and open its links, but only this machine can "
+                    "run, stop or change anything", "dim"), flush=True)
+    else:
+        print(style("  only reachable from this computer - press Ctrl+C to stop", "dim"), flush=True)
 
     # Closing the console window or `kill` should shut down as cleanly as Ctrl+C.
     for name in ("SIGTERM", "SIGBREAK"):

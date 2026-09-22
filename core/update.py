@@ -21,6 +21,7 @@ from typing import Callable
 
 from kitlib import error, style, warn
 
+from core.paths import state_dir
 from core.registry import KIT_HOME
 
 FETCH_TIMEOUT = 45
@@ -278,14 +279,7 @@ def _doctor(say: Log) -> None:
 # --- state file and daily notice ---------------------------------------------------------
 
 def state_path() -> Path:
-    override = os.environ.get("KIT_STATE_DIR")
-    if override:
-        base = Path(override).expanduser()
-    elif sys.platform.startswith("win"):
-        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "kit"
-    else:
-        base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "kit"
-    return base / "update-state.json"
+    return state_dir() / "update-state.json"
 
 
 def _read_all() -> dict:
