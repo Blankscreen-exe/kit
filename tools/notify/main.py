@@ -5,12 +5,14 @@ from __future__ import annotations
 import argparse
 import hmac
 import json
+import os
 import secrets
 import socket
 import subprocess
 import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
@@ -21,6 +23,36 @@ from kitlib.settings import tool_settings
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MACOS = sys.platform == "darwin"
 MAX_BODY = 8_000
+
+
+# --- token: kept on disk rather than made fresh every start ------------------------------
+#
+# A fresh token on every 'serve' would mean re-copying the address every single time,
+# defeating the point of saving one. Same reasoning content-machine's own token uses.
+
+def _token_path() -> Path:
+    override = os.environ.get("KIT_NOTIFY_DATA")
+    if override:
+        return Path(override).expanduser()
+    if IS_WINDOWS:
+        base = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
+    elif IS_MACOS:
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return base / "kit" / "notify-token"
+
+
+def _load_or_create_token(rotate: bool = False) -> str:
+    path = _token_path()
+    if not rotate and path.is_file():
+        stored = path.read_text(encoding="utf-8").strip()
+        if stored:
+            return stored
+    value = secrets.token_urlsafe(16)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(value, encoding="utf-8")
+    return value
 
 
 # --- showing the notification, per platform ---------------------------------------------
@@ -130,9 +162,9 @@ class Handler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.OK, {"ok": True})
 
 
-def cmd_serve(lan: bool, port: int) -> int:
+def cmd_serve(lan: bool, port: int, rotate: bool) -> int:
     host = "0.0.0.0" if lan else "127.0.0.1"
-    token = secrets.token_urlsafe(16)
+    token = _load_or_create_token(rotate)
     try:
         server = NotifyServer(host, port, token)
     except OSError as exc:
@@ -141,6 +173,8 @@ def cmd_serve(lan: bool, port: int) -> int:
     url = f"http://{shown}:{server.server_address[1]}/?t={token}"
     print(f"kit notify: {url}")
     print(style(f"  send to this machine with: kit notify send {url} \"your message\"", "dim"))
+    print(style("  the token stays the same across restarts, so this address keeps working - "
+                "save it. 'kit notify serve --rotate' replaces it", "dim"))
     if lan:
         print(style("  reachable on this network too", "dim"))
     print(style("  Ctrl+C to stop", "dim"), flush=True)
@@ -187,6 +221,7 @@ def main() -> int:
     p = sub.add_parser("serve", help="listen for notifications - run this on the machine that should pop them up")
     p.add_argument("--port", type=int, default=settings["port"], help=f"port to listen on (default {settings['port']})")
     p.add_argument("--lan", action="store_true", help="also reachable from other devices on this network")
+    p.add_argument("--rotate", action="store_true", help="replace the saved token - old addresses stop working")
 
     p = sub.add_parser("send", help="send a notification to a machine running 'kit notify serve'")
     p.add_argument("url", help="the address 'kit notify serve' printed, e.g. http://host:port/?t=...")
@@ -195,7 +230,7 @@ def main() -> int:
 
     args = parser.parse_args()
     if args.command == "serve":
-        return cmd_serve(args.lan, args.port)
+        return cmd_serve(args.lan, args.port, args.rotate)
     return cmd_send(args.url, args.message, args.title)
 
 

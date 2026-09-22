@@ -5,7 +5,7 @@ Send a desktop notification to another PC on your LAN or tailnet.
 ## Usage
 
 ```
-kit notify serve [--lan] [--port N]
+kit notify serve [--lan] [--port N] [--rotate]
 kit notify send <url> "message" [--title TEXT]
 ```
 
@@ -16,8 +16,8 @@ kit notify send <url> "message" [--title TEXT]
   other machine.
 - Run `serve` on every machine you want to be able to notify, and `send` from any of them, pointed
   at another's address.
-- Each `serve` picks a fresh token every time it starts, so an old address stops working once you
-  restart it - grab the new one it prints.
+- The token stays the same across restarts (kept on disk, not made fresh every time), so save the
+  address once and it keeps working. `--rotate` deliberately replaces it - do that if it ever leaks.
 
 ### Reaching another machine
 
