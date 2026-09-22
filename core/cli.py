@@ -139,31 +139,40 @@ def cmd_list(args: list[str]) -> int:
         t for t in reg.tools.values()
         if not needle or needle in " ".join([t.name, *t.aliases, t.summary, t.category]).lower()
     ]
+    matched_builtins = [name for name, (_, text) in BUILTINS.items() if needle in f"{name} {text}".lower()] if needle else []
 
     print(f"{style('kit', 'bold', 'cyan')} {style('- personal toolbox', 'dim')}   {style(KIT_HOME, 'dim')}")
     print()
-    if not tools:
-        print("  no tools match" if needle else "  no tools yet - create one with: kit new <name>")
+    if not tools and not matched_builtins:
+        print("  no tools or commands match" if needle else "  no tools yet - create one with: kit new <name>")
         print()
     else:
-        name_width = max(len(t.name) for t in tools)
-        alias_width = max(len(", ".join(t.aliases)) for t in tools)
-        by_category: dict[str, list[Tool]] = {}
-        for tool in sorted(tools, key=lambda t: (t.category, t.name)):
-            by_category.setdefault(tool.category, []).append(tool)
-        for category, items in by_category.items():
-            print(f"  {style(category.upper(), 'bold')}")
-            for tool in items:
-                if tool.supported:
-                    columns = [style(tool.name.ljust(name_width), "green")]
-                    summary = tool.summary or style("(no summary - add a README.md)", "dim")
-                else:
-                    columns = [style(tool.name.ljust(name_width), "dim")]
-                    summary = style(f"{tool.summary} (only on {', '.join(tool.available_on)})".strip(), "dim")
-                if alias_width:
-                    columns.append(style(", ".join(tool.aliases).ljust(alias_width), "dim"))
-                columns.append(summary)
-                print("    " + "  ".join(columns))
+        if tools:
+            name_width = max(len(t.name) for t in tools)
+            alias_width = max(len(", ".join(t.aliases)) for t in tools)
+            by_category: dict[str, list[Tool]] = {}
+            for tool in sorted(tools, key=lambda t: (t.category, t.name)):
+                by_category.setdefault(tool.category, []).append(tool)
+            for category, items in by_category.items():
+                print(f"  {style(category.upper(), 'bold')}")
+                for tool in items:
+                    if tool.supported:
+                        columns = [style(tool.name.ljust(name_width), "green")]
+                        summary = tool.summary or style("(no summary - add a README.md)", "dim")
+                    else:
+                        columns = [style(tool.name.ljust(name_width), "dim")]
+                        summary = style(f"{tool.summary} (only on {', '.join(tool.available_on)})".strip(), "dim")
+                    if alias_width:
+                        columns.append(style(", ".join(tool.aliases).ljust(alias_width), "dim"))
+                    columns.append(summary)
+                    print("    " + "  ".join(columns))
+                print()
+        if matched_builtins:
+            print(f"  {style('COMMANDS', 'bold')}")
+            width = max(len(name) for name in matched_builtins)
+            for name in matched_builtins:
+                _, text = BUILTINS[name]
+                print(f"    {style(('kit ' + name).ljust(width + 4), 'green')}  {style(text, 'dim')}")
             print()
 
     print(f"{style('run:', 'bold')}       kit <tool> [args]      {style('docs:', 'bold')} kit help <tool>")
