@@ -14,25 +14,30 @@ kit notify send [<url>] "message" [--title TEXT] [--discovery-port N]
   Local-only by default; `--lan` also binds this network **and** makes it discoverable (see below).
 - `kit notify send <url> "message"` sends one, where `<url>` is exactly what `serve` printed on the
   other machine.
-- `kit notify send "message"` - **no address** - finds every `--lan` machine on this network by
-  itself and sends to all of them. Nothing to copy or save.
+- `kit notify send "message"` - **no address** - finds every discoverable machine on this network
+  by itself and sends to all of them. Nothing to copy or save, once set up (below).
 - Run `serve` on every machine you want to be able to notify, and `send` from any of them.
 - The token stays the same across restarts (kept on disk, not made fresh every time), so save the
   address once and it keeps working. `--rotate` deliberately replaces it - do that if it ever leaks.
 
 ### LAN discovery
 
-`--lan` means two things: reachable on this network, and *discoverable* on it - `kit notify send`
-with no address broadcasts a "who's out there" query over UDP (`notify.discovery_port`, default
-8898) and sends to whatever answers. A machine only answers if it was started with `--lan`; one
-that wasn't is exactly as invisible to discovery as it already is to being reached directly - being
-discoverable isn't a separate risk from being `--lan` in the first place, it's the same one.
+Set the same passphrase on every machine that should find each other - once, ever:
 
-One real consequence of that: a discoverable machine hands out its token to anyone who asks, in the
-clear, over UDP. That's fine on a home network you already trust enough to run `--lan` on, and no
-different from what `--lan` already meant - but it does mean the token stops being a secret on that
-network the moment discovery is on, so don't rely on it as a barrier against other people on a
-shared or public network the way you might with `--tailscale`'s address instead.
+```
+kit config set notify.passphrase <make one up, same value on every machine>
+```
+
+With that set, `--lan` means two things: reachable on this network, and *discoverable* on it -
+`kit notify send` with no address broadcasts a signed "who's out there" query over UDP
+(`notify.discovery_port`, default 8898), and a machine only answers if it can prove it knows the
+same passphrase (an HMAC over a timestamp - the passphrase itself is never sent, only proof of it,
+and a stale or reused proof past 30 seconds is rejected). Get the passphrase wrong, or don't set
+one, and you get silence - not an error, so there's no way to tell "wrong passphrase" from
+"nothing's listening" by probing.
+
+Without a passphrase set, `--lan` still makes the machine directly reachable at its printed
+address, same as always - it just isn't discoverable, and `serve` says so.
 
 ### Reaching a machine that isn't on the same LAN
 
@@ -49,6 +54,7 @@ Send it the address that prints (not discovery - that's LAN-only), from the othe
 ## Examples
 
 ```
+kit config set notify.passphrase house-of-blue-lights          # once, same value everywhere
 kit notify serve --lan                                        # on the receiving PC
 kit notify send "build's done"                                # finds it automatically, same LAN
 kit notify send http://192.168.1.28:8899/?t=AbCd1234 "build's done"  # or, a specific address
@@ -61,6 +67,7 @@ kit share start notify --tailscale -- serve                    # across your tai
 |---|---|---|
 | `notify.port` | `8899` | Port `kit notify serve` listens on |
 | `notify.discovery_port` | `8898` | UDP port used to find `kit notify` servers on the LAN |
+| `notify.passphrase` | *(empty)* | Shared secret gating LAN discovery - same value on every machine, or discovery stays off |
 
 ## Notes
 

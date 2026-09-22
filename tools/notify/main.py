@@ -28,6 +28,7 @@ MAX_BODY = 8_000
 DISCOVER_MAGIC = "kit-notify-discover-v1"
 DISCOVER_REPLY_MAGIC = "kit-notify-here-v1"
 DISCOVER_WAIT = 1.5  # seconds to collect replies to a broadcast
+REPLAY_WINDOW = 30  # seconds a discovery query/reply stays valid for - limits replaying a captured one
 
 
 # --- token: kept on disk rather than made fresh every start ------------------------------
@@ -110,14 +111,26 @@ def lan_ip() -> str:
         sock.close()
 
 
-# --- LAN discovery: no URL needed if you're fine reaching everyone announcing itself ------
+# --- LAN discovery: no URL needed, but only for someone who already knows the passphrase --
 #
-# Tied to --lan, the same opt-in that already means "reachable on this network": a discoverable
-# machine answers a broadcast query with its address AND token in the clear over UDP, so being
-# discoverable is exactly as trusting of the LAN as being --lan-reachable already was, not a new,
-# separate risk. A machine that never passed --lan never answers, same as it's never reachable.
+# Tied to --lan, the same opt-in that already means "reachable on this network" - but unlike
+# the HTTP side (a token you either have or don't), a bare broadcast has no way to check who's
+# asking before answering. So discovery needs its own gate: a passphrase set the same on both
+# machines (once, via `kit config set notify.passphrase ...`), proven with an HMAC over a
+# timestamp rather than ever sent itself - a machine without it gets no reply at all, not an
+# error, and can't tell the difference between "wrong passphrase" and "nothing's listening".
+# The real per-notification token is still required on top of this for the HTTP POST itself.
 
-def _discover_responder(discovery_port: int, http_port: int, token: str, stop: threading.Event) -> None:
+def _sign(passphrase: str, message: str) -> str:
+    return hmac.new(passphrase.encode(), message.encode(), "sha256").hexdigest()
+
+
+def _fresh(ts: object) -> bool:
+    return isinstance(ts, (int, float)) and abs(time.time() - ts) <= REPLAY_WINDOW
+
+
+def _discover_responder(discovery_port: int, http_port: int, token: str, passphrase: str,
+                        stop: threading.Event) -> None:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
@@ -140,20 +153,29 @@ def _discover_responder(discovery_port: int, http_port: int, token: str, stop: t
                 query = json.loads(data)
             except (json.JSONDecodeError, UnicodeDecodeError):
                 continue
-            if not (isinstance(query, dict) and query.get("magic") == DISCOVER_MAGIC):
+            if not isinstance(query, dict) or query.get("magic") != DISCOVER_MAGIC:
                 continue
-            reply = json.dumps({"magic": DISCOVER_REPLY_MAGIC, "name": name, "port": http_port, "token": token}).encode()
+            ts = query.get("ts")
+            if not _fresh(ts):
+                continue
+            expected = _sign(passphrase, f"{DISCOVER_MAGIC}:{ts}")
+            if not hmac.compare_digest(str(query.get("mac", "")), expected):
+                continue  # wrong or no passphrase - silence, not an error, either way
+            reply_ts = time.time()
+            reply = {"magic": DISCOVER_REPLY_MAGIC, "name": name, "port": http_port, "token": token, "ts": reply_ts}
+            reply["mac"] = _sign(passphrase, f"{DISCOVER_REPLY_MAGIC}:{reply_ts}:{token}")
             try:
-                sock.sendto(reply, addr)
+                sock.sendto(json.dumps(reply).encode(), addr)
             except OSError:
                 pass
     finally:
         sock.close()
 
 
-def discover_on_lan(discovery_port: int) -> list[dict]:
-    """Broadcasts a query and collects replies for DISCOVER_WAIT seconds. Each reply: name, ip, port, token."""
-    query = json.dumps({"magic": DISCOVER_MAGIC}).encode()
+def discover_on_lan(discovery_port: int, passphrase: str) -> list[dict]:
+    """Broadcasts a signed query and collects verified replies for DISCOVER_WAIT seconds."""
+    ts = time.time()
+    query = json.dumps({"magic": DISCOVER_MAGIC, "ts": ts, "mac": _sign(passphrase, f"{DISCOVER_MAGIC}:{ts}")}).encode()
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     sock.settimeout(0.3)
@@ -172,11 +194,14 @@ def discover_on_lan(discovery_port: int) -> list[dict]:
                 reply = json.loads(data)
             except (json.JSONDecodeError, UnicodeDecodeError):
                 continue
-            if not (isinstance(reply, dict) and reply.get("magic") == DISCOVER_REPLY_MAGIC):
+            if not isinstance(reply, dict) or reply.get("magic") != DISCOVER_REPLY_MAGIC:
                 continue
-            port, token = reply.get("port"), reply.get("token")
-            if not isinstance(port, int) or not isinstance(token, str) or not token:
+            port, token, reply_ts = reply.get("port"), reply.get("token"), reply.get("ts")
+            if not isinstance(port, int) or not isinstance(token, str) or not token or not _fresh(reply_ts):
                 continue
+            expected = _sign(passphrase, f"{DISCOVER_REPLY_MAGIC}:{reply_ts}:{token}")
+            if not hmac.compare_digest(str(reply.get("mac", "")), expected):
+                continue  # answered, but doesn't know the same passphrase - don't trust it
             key = (addr[0], port)
             found[key] = {"name": reply.get("name") or addr[0], "ip": addr[0], "port": port, "token": token}
     finally:
@@ -241,7 +266,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.OK, {"ok": True})
 
 
-def cmd_serve(lan: bool, port: int, rotate: bool, discovery_port: int) -> int:
+def cmd_serve(lan: bool, port: int, rotate: bool, discovery_port: int, passphrase: str) -> int:
     host = "0.0.0.0" if lan else "127.0.0.1"
     token = _load_or_create_token(rotate)
     try:
@@ -256,10 +281,15 @@ def cmd_serve(lan: bool, port: int, rotate: bool, discovery_port: int) -> int:
                 "save it. 'kit notify serve --rotate' replaces it", "dim"))
 
     stop_discovery = threading.Event()
-    if lan:
-        print(style(f"  reachable on this network too, and discoverable: "
-                    f"kit notify send (with no address) finds it automatically", "dim"))
-        threading.Thread(target=_discover_responder, args=(discovery_port, server.server_address[1], token, stop_discovery),
+    if lan and not passphrase:
+        suggestion = secrets.token_urlsafe(12)
+        print(style(f"  reachable on this network, but not discoverable - set the same passphrase on every "
+                    f"machine to turn that on: kit config set notify.passphrase {suggestion}", "dim"))
+    elif lan:
+        print(style("  reachable on this network too, and discoverable: "
+                    "kit notify send (with no address) finds it automatically", "dim"))
+        threading.Thread(target=_discover_responder,
+                         args=(discovery_port, server.server_address[1], token, passphrase, stop_discovery),
                          daemon=True).start()
     print(style("  Ctrl+C to stop", "dim"), flush=True)
     try:
@@ -300,12 +330,16 @@ def cmd_send(url: str, message: str, title: str) -> int:
     return 0
 
 
-def cmd_send_lan(message: str, title: str, discovery_port: int) -> int:
+def cmd_send_lan(message: str, title: str, discovery_port: int, passphrase: str) -> int:
+    if not passphrase:
+        die("notify.passphrase isn't set, so there's nothing to discover with - set the same value "
+            "here and on the other machine: kit config set notify.passphrase <same-value-on-both>")
     print(style("  looking for kit notify on this network...", "dim"))
-    devices = discover_on_lan(discovery_port)
+    devices = discover_on_lan(discovery_port, passphrase)
     if not devices:
-        die("nothing answered - is a machine running 'kit notify serve --lan' on this network? "
-            "(discovery doesn't cross into a tailnet - use its address directly for that)")
+        die("nothing answered - is a machine running 'kit notify serve --lan' with the same "
+            "notify.passphrase on this network? (discovery doesn't cross into a tailnet - use its "
+            "address directly for that)")
     failed = 0
     for device in devices:
         try:
@@ -347,10 +381,10 @@ def main() -> int:
 
     args = parser.parse_args()
     if args.command == "serve":
-        return cmd_serve(args.lan, args.port, args.rotate, args.discovery_port)
+        return cmd_serve(args.lan, args.port, args.rotate, args.discovery_port, settings["passphrase"])
     if args.url:
         return cmd_send(args.url, args.message, args.title)
-    return cmd_send_lan(args.message, args.title, args.discovery_port)
+    return cmd_send_lan(args.message, args.title, args.discovery_port, settings["passphrase"])
 
 
 if __name__ == "__main__":
