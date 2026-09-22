@@ -23,7 +23,7 @@ kit - personal toolbox
     hosts                          View and edit the hosts file safely: list, add, block, disable and remove entries, with a backup before every change.
     internet-speed                 Test your connection's latency, jitter, download and upload speed against Cloudflare, and time TCP connections to any host.
     port            ports          See what's using network ports, stop it, and find free ports.
-    serve           share          Share a folder, or an app running on this computer, with other devices on your network, with a QR code for your phone.
+    serve                          Share a folder, or an app running on this computer, with other devices on your network, with a QR code for your phone.
     ssh                            List, add, remove and connect to the SSH hosts saved in your ~/.ssh/config.
 
   PRODUCTIVITY
@@ -49,7 +49,7 @@ kit - personal toolbox
     qr                             Show a QR code in the terminal for any text or URL, or save it as a PNG or SVG.
 
 run:       kit <tool> [args]      docs: kit help <tool>
-built-ins: list, help, new, doctor, path, config, update, hub
+built-ins: list, help, new, doctor, path, config, update, hub, share
 ```
 
 ## Install
@@ -97,6 +97,8 @@ the block in place, and uninstalling removes only that block. Uninstalling leave
 | `kit help <tool>` | Show the tool's README plus where it lives |
 | `kit <tool> [args]` | Run a tool; aliases work too (`kit t sum 1:30 2h`) |
 | `kit hub` | Open the kit dashboard in your browser |
+| `kit share start <tool> [--name N] [-- args]` | Launch a web tool in the background, tracked by kit |
+| `kit share list` \| `stop <name>\|--all` \| `logs <name> [-f]` | See, stop or read the output of what's currently shared |
 | `kit config ...` | See and change settings for kit and every tool |
 | `kit update` | Update kit from GitHub, install packages and run doctor |
 | `kit new <name> [--lang py\|ps1\|sh]` | Create a new tool folder from a template |

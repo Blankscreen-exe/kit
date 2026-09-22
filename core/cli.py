@@ -25,6 +25,7 @@ BUILTINS = {
     "config": ("[list|get|set|unset|edit|path]", "view and change settings for kit and its tools"),
     "update": ("[--check]", "update kit from GitHub, then sync packages and run doctor"),
     "hub": ("[--port N] [--no-open]", "open the kit dashboard in your browser"),
+    "share": ("[start|stop|list|logs]", "launch web tools in the background and manage them centrally"),
 }
 RESERVED = frozenset(BUILTINS) | {"_complete"}
 
@@ -33,6 +34,7 @@ MODULE_COMMANDS = {
     "config": "core.config_cmd",
     "update": "core.update",
     "hub": "core.hub",
+    "share": "core.share",
 }
 # Commands after which the daily "update available" notice is never printed.
 NO_UPDATE_NOTICE = {"_complete", "update", "hub"}
