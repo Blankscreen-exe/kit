@@ -5,37 +5,59 @@ Send a desktop notification to another PC on your LAN or tailnet.
 ## Usage
 
 ```
-kit notify serve [--lan] [--port N]
-kit notify send <url> "message" [--title TEXT]
+kit notify serve [--lan] [--port N] [--rotate] [--discovery-port N]
+kit notify send [<url>] "message" [--title TEXT] [--discovery-port N]
 ```
 
 - `kit notify serve` listens for notifications and pops them up on this machine. It prints its own
   address, ending in `?t=...` - that's what the other machine sends to.
-  Local-only by default; `--lan` also binds this network.
+  Local-only by default; `--lan` also binds this network **and** makes it discoverable (see below).
 - `kit notify send <url> "message"` sends one, where `<url>` is exactly what `serve` printed on the
   other machine.
-- Run `serve` on every machine you want to be able to notify, and `send` from any of them, pointed
-  at another's address.
-- Each `serve` picks a fresh token every time it starts, so an old address stops working once you
-  restart it - grab the new one it prints.
+- `kit notify send "message"` - **no address** - finds every discoverable machine on this network
+  by itself and sends to all of them. Nothing to copy or save, once set up (below).
+- Run `serve` on every machine you want to be able to notify, and `send` from any of them.
+- The token stays the same across restarts (kept on disk, not made fresh every time), so save the
+  address once and it keeps working. `--rotate` deliberately replaces it - do that if it ever leaks.
 
-### Reaching another machine
+### LAN discovery
 
-`kit notify serve` alone is LAN-shareable (`--lan`) the same way any kit web tool is. For a machine
-that isn't on the same LAN, launch it through `kit share` instead, which does the same thing over
-your tailnet without you managing a second process:
+Set the same passphrase on every machine that should find each other - once, ever:
+
+```
+kit config set notify.passphrase <make one up, same value on every machine>
+```
+
+With that set, `--lan` means two things: reachable on this network, and *discoverable* on it -
+`kit notify send` with no address broadcasts a signed "who's out there" query over UDP
+(`notify.discovery_port`, default 8898), and a machine only answers if it can prove it knows the
+same passphrase (an HMAC over a timestamp - the passphrase itself is never sent, only proof of it,
+and a stale or reused proof past 30 seconds is rejected). Get the passphrase wrong, or don't set
+one, and you get silence - not an error, so there's no way to tell "wrong passphrase" from
+"nothing's listening" by probing.
+
+Without a passphrase set, `--lan` still makes the machine directly reachable at its printed
+address, same as always - it just isn't discoverable, and `serve` says so.
+
+### Reaching a machine that isn't on the same LAN
+
+Discovery only finds machines on the same LAN segment - it doesn't cross into a tailnet or reach a
+different network. For that, launch `serve` through `kit share` instead, which does the same job
+over your tailnet without you managing a second process:
 
 ```
 kit share start notify --tailscale -- serve
 ```
 
-Send it the address that prints, from the other machine.
+Send it the address that prints (not discovery - that's LAN-only), from the other machine.
 
 ## Examples
 
 ```
+kit config set notify.passphrase house-of-blue-lights          # once, same value everywhere
 kit notify serve --lan                                        # on the receiving PC
-kit notify send http://192.168.1.28:8899/?t=AbCd1234 "build's done"
+kit notify send "build's done"                                # finds it automatically, same LAN
+kit notify send http://192.168.1.28:8899/?t=AbCd1234 "build's done"  # or, a specific address
 kit share start notify --tailscale -- serve                    # across your tailnet instead
 ```
 
@@ -44,6 +66,8 @@ kit share start notify --tailscale -- serve                    # across your tai
 | Setting | Default | What it does |
 |---|---|---|
 | `notify.port` | `8899` | Port `kit notify serve` listens on |
+| `notify.discovery_port` | `8898` | UDP port used to find `kit notify` servers on the LAN |
+| `notify.passphrase` | *(empty)* | Shared secret gating LAN discovery - same value on every machine, or discovery stays off |
 
 ## Notes
 

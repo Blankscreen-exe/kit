@@ -2,6 +2,8 @@
   "category": "network",
   "web": true,
   "settings": {
-    "port": {"type": "int", "default": 8899, "min": 1, "max": 65535, "help": "Port kit notify serve listens on"}
+    "port": {"type": "int", "default": 8899, "min": 1, "max": 65535, "help": "Port kit notify serve listens on"},
+    "discovery_port": {"type": "int", "default": 8898, "min": 1, "max": 65535, "help": "UDP port used to find kit notify servers on the LAN"},
+    "passphrase": {"type": "string", "default": "", "help": "Shared secret gating LAN discovery - set the same value on every machine to turn it on"}
   }
 }
