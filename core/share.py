@@ -381,6 +381,22 @@ def main(args: list[str]) -> int:
         prog="kit share",
         description="Launch web tools in the background, tracked by kit, so you can list and stop them "
                     "centrally - from a terminal, without needing kit hub open.",
+        epilog="""\
+COMMAND is a word, not a flag - kit share list, not kit share --list.
+
+examples:
+  kit share start serve -- /path/to/folder     share a folder (files, images, anything on disk)
+  kit share start serve -- --app 3000          put an app already running on port 3000 on your LAN
+  kit share start content-machine -- serve --lan
+                                                a kit web tool, with its own args after --
+  kit share start serve --tailscale -- --app 3000
+                                                the same, reachable on your tailnet instead of the LAN
+  kit share list                               what's currently shared
+  kit share logs my-app -f                     follow a shared app's output
+  kit share stop my-app                        stop one
+  kit share stop --all                         stop everything
+""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
