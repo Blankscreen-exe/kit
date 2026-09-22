@@ -344,7 +344,9 @@ def cmd_send(url: str, message: str, title: str) -> int:
         detail = exc.read().decode("utf-8", "replace")[:200]
         die(f"{parsed.netloc} rejected it ({exc.code}): {detail}")
     except URLError as exc:
-        die(f"couldn't reach {parsed.netloc}: {exc.reason}")
+        die(f"couldn't reach {parsed.netloc}: {exc.reason} - if that machine is on Windows, its "
+            f"firewall may be blocking it (common the first time): see the Firewall section in "
+            f"'kit help notify' for the exact commands")
     print(f"sent to {parsed.netloc}")
     return 0
 
@@ -356,16 +358,23 @@ def cmd_send_lan(message: str, title: str, discovery_port: int, passphrase: str)
     print(style("  looking for kit notify on this network...", "dim"))
     devices = discover_on_lan(discovery_port, passphrase)
     if not devices:
-        die("nothing answered - is a machine running 'kit notify serve --lan' with the same "
-            "notify.passphrase on this network? (discovery doesn't cross into a tailnet - use its "
-            "address directly for that)")
+        die("nothing answered. Check: another machine is running 'kit notify serve --lan' with the "
+            "exact same notify.passphrase - and that its firewall allows it (Windows often blocks "
+            "this the first time: see the Firewall section in 'kit help notify' for the exact "
+            "commands). Discovery doesn't cross into a tailnet - use the address directly for that.")
     failed = 0
     for device in devices:
         try:
             _post_notify(device["ip"], device["port"], device["token"], title, message)
-        except (HTTPError, URLError) as exc:
+        except HTTPError as exc:
             failed += 1
-            warn(f"{device['name']} ({device['ip']}): {exc}")
+            warn(f"{device['name']} ({device['ip']}): rejected ({exc.code})")
+        except URLError as exc:
+            failed += 1
+            # found it (discovery got through), but the actual notify port didn't - a narrower
+            # signal than "nothing answered": likely that port specifically, not discovery, is blocked
+            warn(f"{device['name']} ({device['ip']}) answered discovery but port {device['port']} "
+                f"didn't respond ({exc.reason}) - see the Firewall section in 'kit help notify'")
         else:
             print(f"sent to {device['name']} ({device['ip']})")
     if failed == len(devices):
