@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import time
@@ -62,6 +63,42 @@ def _save(data: dict[str, dict]) -> None:
 
 def _is_alive(entry: dict) -> bool:
     return proc.alive(entry["pid"], entry.get("create_time"))
+
+
+# --- registration for launches kit starts on your behalf (e.g. kit hub's Launch button) ----
+#
+# `start` below is the CLI path (`kit share start ...`); these let another part of kit - kit
+# hub, so far - add its own launches to the same registry, so `kit share list/stop` sees and
+# can stop everything regardless of how it was started.
+
+def register(name: str, tool: str, pid: int, cwd: str, log: str | None = None,
+            url: str | None = None, create_time: float | None = None) -> None:
+    data = _load()
+    data[name] = {"name": name, "tool": tool, "args": [], "pid": pid, "started": time.time(),
+                  "log": log, "url": url, "cwd": cwd, "create_time": create_time}
+    _save(data)
+
+
+def unregister(name: str) -> None:
+    data = _load()
+    if name in data:
+        del data[name]
+        _save(data)
+
+
+def update_url(name: str, url: str) -> None:
+    data = _load()
+    if name in data:
+        data[name]["url"] = url
+        _save(data)
+
+
+def unique_name(base: str) -> str:
+    """base, or base plus a short suffix if base already names another still-running job."""
+    existing = _load().get(base)
+    if existing is None or not _is_alive(existing):
+        return base
+    return f"{base}-{secrets.token_hex(3)}"
 
 
 # --- finding and launching a tool -------------------------------------------------------
@@ -223,11 +260,12 @@ def cmd_list() -> int:
     for name in sorted(data):
         entry = data[name]
         if not _is_alive(entry):
-            print(style(f"'{name}' is no longer running - removing it from the list (log: {entry['log']})", "dim"))
+            where = f" (log: {entry['log']})" if entry.get("log") else " (started from kit hub)"
+            print(style(f"'{name}' is no longer running - removing it from the list{where}", "dim"))
             del data[name]
             changed = True
             continue
-        if not entry.get("url"):
+        if not entry.get("url") and entry.get("log"):
             found = _detect_url(Path(entry["log"]))
             if found:
                 entry["url"] = found
@@ -255,6 +293,9 @@ def cmd_logs(name: str, follow: bool) -> int:
     entry = data.get(name)
     if entry is None:
         die(f"no shared app named '{name}' - see: kit share list")
+    if not entry.get("log"):
+        die(f"'{name}' was started from kit hub, not the command line - its output is in the hub's browser tab, "
+            "not a log file")
     path = Path(entry["log"])
     try:
         with open(path, encoding="utf-8", errors="replace") as f:

@@ -181,6 +181,10 @@ prints `kit: an update is available (N new commits) - run: kit update` after a c
 It only listens on 127.0.0.1 and needs the one-time token in the printed address, so other web pages and
 programs can't use it to run commands.
 
+`kit hub --lan` also binds your network, so another device can open the same dashboard without typing a
+token: anyone there can see what's running and open its links, but running, stopping or changing anything
+still only works from the machine `kit hub` is running on, token or not.
+
 ## Adding a tool
 
 Every sub-folder of `tools/` is a tool, and the folder name is the command. There's no list to update.
