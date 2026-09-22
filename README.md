@@ -22,6 +22,7 @@ kit - personal toolbox
   NETWORK
     hosts                          View and edit the hosts file safely: list, add, block, disable and remove entries, with a backup before every change.
     internet-speed                 Test your connection's latency, jitter, download and upload speed against Cloudflare, and time TCP connections to any host.
+    notify                          Send a desktop notification to another PC on your LAN or tailnet.
     port            ports          See what's using network ports, stop it, and find free ports.
     serve                          Share a folder, or an app running on this computer, with other devices on your network, with a QR code for your phone.
     ssh                            List, add, remove and connect to the SSH hosts saved in your ~/.ssh/config.

@@ -178,6 +178,15 @@ def _format_duration(seconds: float) -> str:
 # unlike a public tunnel (cloudflared etc.), which stays running and would need its own pid
 # tracked alongside the app's. That's not built yet - see `kit help share`.
 
+def _decode(value: str | bytes | None) -> str:
+    """subprocess.TimeoutExpired's .stdout/.stderr come back as bytes even with text=True,
+    since they're whatever had been read before the timeout, not run through the normal
+    decoding path."""
+    if value is None:
+        return ""
+    return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
+
+
 def _tailscale_share(local_url: str) -> str | None:
     """Point `tailscale serve` at local_url's port; returns the tailnet address for the
     same path and query, or None if that didn't work - never fatal: the app itself is
@@ -193,7 +202,18 @@ def _tailscale_share(local_url: str) -> str | None:
     try:
         result = subprocess.run(["tailscale", "serve", "--bg", str(parts.port)],
                                 capture_output=True, text=True, timeout=15)
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired as exc:
+        # tailscale prints its own explanation (often a one-time setup link) before it blocks
+        # waiting on something - e.g. Serve needing to be turned on for the tailnet in the
+        # admin console - so show whatever it already said rather than just "timed out".
+        partial = (_decode(exc.stdout) + _decode(exc.stderr)).strip()
+        if partial:
+            warn(f"tailscale serve is waiting on something before it can continue:\n{partial}")
+        else:
+            warn(f"tailscale serve didn't finish within 15s and printed nothing - "
+                f"check it yourself: tailscale serve --bg {parts.port}")
+        return None
+    except OSError as exc:
         warn(f"couldn't run tailscale: {exc}")
         return None
     output = ((result.stdout or "") + (result.stderr or "")).strip()
