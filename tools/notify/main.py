@@ -10,6 +10,8 @@ import secrets
 import socket
 import subprocess
 import sys
+import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -23,6 +25,9 @@ from kitlib.settings import tool_settings
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MACOS = sys.platform == "darwin"
 MAX_BODY = 8_000
+DISCOVER_MAGIC = "kit-notify-discover-v1"
+DISCOVER_REPLY_MAGIC = "kit-notify-here-v1"
+DISCOVER_WAIT = 1.5  # seconds to collect replies to a broadcast
 
 
 # --- token: kept on disk rather than made fresh every start ------------------------------
@@ -105,6 +110,80 @@ def lan_ip() -> str:
         sock.close()
 
 
+# --- LAN discovery: no URL needed if you're fine reaching everyone announcing itself ------
+#
+# Tied to --lan, the same opt-in that already means "reachable on this network": a discoverable
+# machine answers a broadcast query with its address AND token in the clear over UDP, so being
+# discoverable is exactly as trusting of the LAN as being --lan-reachable already was, not a new,
+# separate risk. A machine that never passed --lan never answers, same as it's never reachable.
+
+def _discover_responder(discovery_port: int, http_port: int, token: str, stop: threading.Event) -> None:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind(("0.0.0.0", discovery_port))
+    except OSError as exc:
+        warn(f"couldn't listen for discovery broadcasts on UDP {discovery_port}: {exc} - "
+            "kit notify send (with no address) won't find this machine")
+        return
+    sock.settimeout(0.5)
+    name = socket.gethostname()
+    try:
+        while not stop.is_set():
+            try:
+                data, addr = sock.recvfrom(2048)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            try:
+                query = json.loads(data)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            if not (isinstance(query, dict) and query.get("magic") == DISCOVER_MAGIC):
+                continue
+            reply = json.dumps({"magic": DISCOVER_REPLY_MAGIC, "name": name, "port": http_port, "token": token}).encode()
+            try:
+                sock.sendto(reply, addr)
+            except OSError:
+                pass
+    finally:
+        sock.close()
+
+
+def discover_on_lan(discovery_port: int) -> list[dict]:
+    """Broadcasts a query and collects replies for DISCOVER_WAIT seconds. Each reply: name, ip, port, token."""
+    query = json.dumps({"magic": DISCOVER_MAGIC}).encode()
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    sock.settimeout(0.3)
+    found: dict[tuple[str, int], dict] = {}
+    try:
+        sock.sendto(query, ("255.255.255.255", discovery_port))
+        deadline = time.monotonic() + DISCOVER_WAIT
+        while time.monotonic() < deadline:
+            try:
+                data, addr = sock.recvfrom(2048)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            try:
+                reply = json.loads(data)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            if not (isinstance(reply, dict) and reply.get("magic") == DISCOVER_REPLY_MAGIC):
+                continue
+            port, token = reply.get("port"), reply.get("token")
+            if not isinstance(port, int) or not isinstance(token, str) or not token:
+                continue
+            key = (addr[0], port)
+            found[key] = {"name": reply.get("name") or addr[0], "ip": addr[0], "port": port, "token": token}
+    finally:
+        sock.close()
+    return list(found.values())
+
+
 class NotifyServer(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -162,7 +241,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.OK, {"ok": True})
 
 
-def cmd_serve(lan: bool, port: int, rotate: bool) -> int:
+def cmd_serve(lan: bool, port: int, rotate: bool, discovery_port: int) -> int:
     host = "0.0.0.0" if lan else "127.0.0.1"
     token = _load_or_create_token(rotate)
     try:
@@ -175,38 +254,69 @@ def cmd_serve(lan: bool, port: int, rotate: bool) -> int:
     print(style(f"  send to this machine with: kit notify send {url} \"your message\"", "dim"))
     print(style("  the token stays the same across restarts, so this address keeps working - "
                 "save it. 'kit notify serve --rotate' replaces it", "dim"))
+
+    stop_discovery = threading.Event()
     if lan:
-        print(style("  reachable on this network too", "dim"))
+        print(style(f"  reachable on this network too, and discoverable: "
+                    f"kit notify send (with no address) finds it automatically", "dim"))
+        threading.Thread(target=_discover_responder, args=(discovery_port, server.server_address[1], token, stop_discovery),
+                         daemon=True).start()
     print(style("  Ctrl+C to stop", "dim"), flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nstopping kit notify")
     finally:
+        stop_discovery.set()
         server.server_close()
     return 0
 
 
 # --- client: kit notify send --------------------------------------------------------------
 
+def _post_notify(host: str, port: int, token: str, title: str, message: str) -> None:
+    """Raises HTTPError/URLError on failure - callers decide how to report it."""
+    target = f"http://{host}:{port}/notify?t={token}"
+    payload = json.dumps({"title": title, "message": message}).encode("utf-8")
+    request = Request(target, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+    with urlopen(request, timeout=10):
+        pass
+
+
 def cmd_send(url: str, message: str, title: str) -> int:
     parsed = urlparse(url)
     token = parse_qs(parsed.query).get("t", [""])[0]
-    if not parsed.netloc or not token:
+    if not parsed.hostname or not parsed.port or not token:
         die("that doesn't look like a kit notify address - it should look like what "
             "'kit notify serve' printed, ending in ?t=...")
-    target = f"{parsed.scheme}://{parsed.netloc}/notify?t={token}"
-    payload = json.dumps({"title": title, "message": message}).encode("utf-8")
-    request = Request(target, data=payload, headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urlopen(request, timeout=10):
-            pass
+        _post_notify(parsed.hostname, parsed.port, token, title, message)
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")[:200]
         die(f"{parsed.netloc} rejected it ({exc.code}): {detail}")
     except URLError as exc:
         die(f"couldn't reach {parsed.netloc}: {exc.reason}")
     print(f"sent to {parsed.netloc}")
+    return 0
+
+
+def cmd_send_lan(message: str, title: str, discovery_port: int) -> int:
+    print(style("  looking for kit notify on this network...", "dim"))
+    devices = discover_on_lan(discovery_port)
+    if not devices:
+        die("nothing answered - is a machine running 'kit notify serve --lan' on this network? "
+            "(discovery doesn't cross into a tailnet - use its address directly for that)")
+    failed = 0
+    for device in devices:
+        try:
+            _post_notify(device["ip"], device["port"], device["token"], title, message)
+        except (HTTPError, URLError) as exc:
+            failed += 1
+            warn(f"{device['name']} ({device['ip']}): {exc}")
+        else:
+            print(f"sent to {device['name']} ({device['ip']})")
+    if failed == len(devices):
+        die("couldn't reach any of them")
     return 0
 
 
@@ -220,18 +330,27 @@ def main() -> int:
 
     p = sub.add_parser("serve", help="listen for notifications - run this on the machine that should pop them up")
     p.add_argument("--port", type=int, default=settings["port"], help=f"port to listen on (default {settings['port']})")
-    p.add_argument("--lan", action="store_true", help="also reachable from other devices on this network")
+    p.add_argument("--lan", action="store_true",
+                   help="also reachable from other devices on this network, and discoverable by 'kit notify send'")
     p.add_argument("--rotate", action="store_true", help="replace the saved token - old addresses stop working")
+    p.add_argument("--discovery-port", type=int, default=settings["discovery_port"],
+                   help=f"UDP port for LAN discovery (default {settings['discovery_port']})")
 
     p = sub.add_parser("send", help="send a notification to a machine running 'kit notify serve'")
-    p.add_argument("url", help="the address 'kit notify serve' printed, e.g. http://host:port/?t=...")
+    p.add_argument("url", nargs="?",
+                   help="the address 'kit notify serve' printed, e.g. http://host:port/?t=... "
+                        "omit it to broadcast to every --lan machine on this network instead")
     p.add_argument("message")
     p.add_argument("--title", default="kit notify", help="notification title (default: 'kit notify')")
+    p.add_argument("--discovery-port", type=int, default=settings["discovery_port"],
+                   help=f"UDP port for LAN discovery, with no address (default {settings['discovery_port']})")
 
     args = parser.parse_args()
     if args.command == "serve":
-        return cmd_serve(args.lan, args.port, args.rotate)
-    return cmd_send(args.url, args.message, args.title)
+        return cmd_serve(args.lan, args.port, args.rotate, args.discovery_port)
+    if args.url:
+        return cmd_send(args.url, args.message, args.title)
+    return cmd_send_lan(args.message, args.title, args.discovery_port)
 
 
 if __name__ == "__main__":
