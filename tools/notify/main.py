@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -281,7 +282,10 @@ class Handler(BaseHTTPRequestHandler):
         if not message:
             return self._json(HTTPStatus.BAD_REQUEST, {"error": "'message' is required"})
         title = str(body.get("title") or "kit notify").strip()[:200] or "kit notify"
-        show_notification(title, message)
+        # not inline: on Windows, show_notification now blocks until the balloon is clicked or
+        # closes on its own (that's what makes clicking it work at all) - up to several seconds,
+        # which the sender has no reason to sit through just to get its "delivered" response
+        threading.Thread(target=show_notification, args=(title, message), daemon=True).start()
         self._json(HTTPStatus.OK, {"ok": True})
 
 
@@ -363,21 +367,31 @@ def cmd_send_lan(message: str, title: str, discovery_port: int, passphrase: str)
             "exact same notify.passphrase - and that its firewall allows it (Windows often blocks "
             "this the first time: see the Firewall section in 'kit help notify' for the exact "
             "commands). Discovery doesn't cross into a tailnet - use the address directly for that.")
-    failed = 0
-    for device in devices:
+    # concurrent, not one after another: a slow or unreachable device would otherwise delay
+    # every device after it in the list, so the whole broadcast's time would grow with the
+    # number of devices instead of being bounded by the single slowest one
+    def send_to(device: dict) -> tuple[dict, Exception | None]:
         try:
             _post_notify(device["ip"], device["port"], device["token"], title, message)
-        except HTTPError as exc:
-            failed += 1
-            warn(f"{device['name']} ({device['ip']}): rejected ({exc.code})")
-        except URLError as exc:
-            failed += 1
-            # found it (discovery got through), but the actual notify port didn't - a narrower
-            # signal than "nothing answered": likely that port specifically, not discovery, is blocked
-            warn(f"{device['name']} ({device['ip']}) answered discovery but port {device['port']} "
-                f"didn't respond ({exc.reason}) - see the Firewall section in 'kit help notify'")
-        else:
-            print(f"sent to {device['name']} ({device['ip']})")
+        except (HTTPError, URLError) as exc:
+            return device, exc
+        return device, None
+
+    failed = 0
+    with ThreadPoolExecutor(max_workers=max(1, len(devices))) as pool:
+        for device, exc in pool.map(send_to, devices):
+            if exc is None:
+                print(f"sent to {device['name']} ({device['ip']})")
+            elif isinstance(exc, HTTPError):
+                failed += 1
+                warn(f"{device['name']} ({device['ip']}): rejected ({exc.code})")
+            else:
+                failed += 1
+                # found it (discovery got through), but the actual notify port didn't - a
+                # narrower signal than "nothing answered": likely that port specifically, not
+                # discovery, is blocked
+                warn(f"{device['name']} ({device['ip']}) answered discovery but port {device['port']} "
+                    f"didn't respond ({exc.reason}) - see the Firewall section in 'kit help notify'")
     if failed == len(devices):
         die("couldn't reach any of them")
     return 0

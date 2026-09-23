@@ -54,6 +54,10 @@ KIT_SCHEMA: dict[str, dict[str, Any]] = {
         "type": "string", "default": "", "env": "KIT_BROWSER",
         "help": "Edge/Chrome/Chromium executable for PDFs and app windows (empty: find one automatically)",
     },
+    "notify_direct_runs": {
+        "type": "bool", "default": True,
+        "help": "Also announce a web tool's link over kit notify when run directly (kit <tool>), not just kit share start",
+    },
 }
 
 HEADER = """\

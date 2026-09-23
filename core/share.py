@@ -238,6 +238,8 @@ def _tailscale_share(local_url: str) -> str | None:
 # register()/update_url() already are - so it doesn't matter which one started the share.
 
 def notify_share(display_name: str, url: str) -> None:
+    if urlparse(url).hostname in LOCAL_HOSTS:
+        return  # nobody else could reach it anyway - nothing true to tell them
     notify_tool = _discover().resolve("notify")
     if notify_tool is None or not notify_tool.supported:
         return
@@ -247,14 +249,18 @@ def notify_share(display_name: str, url: str) -> None:
     except runner.RunError:
         return
     try:
+        # discovery (~1.5s) + up to one notify port's own 10s connect timeout, now that kit
+        # notify sends to every discovered device in parallel rather than one after another
         result = subprocess.run(command, env=runner.tool_env(notify_tool),
-                                capture_output=True, text=True, timeout=5)
+                                capture_output=True, text=True, timeout=13)
     except (OSError, subprocess.TimeoutExpired):
         return
     sent = [line for line in result.stdout.splitlines() if line.startswith("sent to")]
     if sent:
         print(style(f"  notified {len(sent)} device{'s' if len(sent) != 1 else ''} on the LAN "
                     "(kit notify)", "dim"))
+        sys.stdout.flush()  # this runs on a background thread - don't rely on the main thread
+                            # (or process exit) to flush shared, buffered stdout for it
 
 
 # --- commands -------------------------------------------------------------------------

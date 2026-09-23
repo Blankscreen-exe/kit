@@ -116,6 +116,13 @@ It also announces the link for you: once `notify.passphrase` is set (`kit config
 <value>`, same value on every machine - see `kit help notify`), every `kit share start` broadcasts it over
 `kit notify` to everyone discoverable on the LAN automatically, no extra step. Nothing happens if the
 passphrase isn't set, so this is entirely opt-in by setting it up once; `--no-notify` skips it for one share.
+Localhost-only links (`kit share start` without `--lan`) are never announced - nobody else could reach them
+anyway.
+
+The same announcement happens for a web tool run directly too (`kit some-tool --lan`, not through `kit
+share start` at all) - kit watches its output live for a URL the same way, without changing what you see
+(colours and interactive prompts still work exactly as before). `kit config set kit.notify_direct_runs
+false` turns this off if you only want it for things launched through `kit share`.
 
 ## Settings
 

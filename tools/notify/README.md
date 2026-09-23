@@ -92,3 +92,9 @@ kit share start notify --tailscale -- serve                    # across your tai
   Windows uses a WinForms tray balloon, needing nothing extra installed. If none of those work,
   the message is printed instead.
 - There's no address book: you always pass the exact address `serve` printed.
+- `serve` confirms delivery as soon as it's received a message, not once it's been shown or
+  clicked - showing it (especially the clickable Windows balloon, which waits for that click)
+  happens in the background, so a slow or unattended notification on one machine never holds up
+  `send` or a broadcast to everyone else.
+- A broadcast (`send` with no address) reaches every discovered device at the same time, not one
+  after another - the whole thing takes as long as the single slowest one, not their sum.
