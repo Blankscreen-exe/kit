@@ -229,9 +229,38 @@ def _tailscale_share(local_url: str) -> str | None:
     return urlunsplit((tailnet.scheme, tailnet.netloc, parts.path, parts.query, ""))
 
 
+# --- announcing a share via kit notify ---------------------------------------------------
+#
+# Best-effort and silent by design: whether this ever does anything at all depends on
+# notify.passphrase being set (kit notify send itself refuses to broadcast without it) - so a
+# share on a machine that's never touched kit notify behaves exactly as before, no clutter, no
+# error. Used both here (the CLI path) and from core.hub.server (the Launch path), same as
+# register()/update_url() already are - so it doesn't matter which one started the share.
+
+def notify_share(display_name: str, url: str) -> None:
+    notify_tool = _discover().resolve("notify")
+    if notify_tool is None or not notify_tool.supported:
+        return
+    message = f"{display_name} is now shared: {url}"
+    try:
+        command = runner.build_command(notify_tool, ["send", message])
+    except runner.RunError:
+        return
+    try:
+        result = subprocess.run(command, env=runner.tool_env(notify_tool),
+                                capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return
+    sent = [line for line in result.stdout.splitlines() if line.startswith("sent to")]
+    if sent:
+        print(style(f"  notified {len(sent)} device{'s' if len(sent) != 1 else ''} on the LAN "
+                    "(kit notify)", "dim"))
+
+
 # --- commands -------------------------------------------------------------------------
 
-def cmd_start(tool_name: str, tool_args: list[str], name: str | None, tailscale: bool = False) -> int:
+def cmd_start(tool_name: str, tool_args: list[str], name: str | None, tailscale: bool = False,
+             notify: bool = True) -> int:
     tool = _find_tool(tool_name)
     name = name or tool.name
     if not NAME_RE.fullmatch(name):
@@ -298,6 +327,10 @@ def cmd_start(tool_name: str, tool_args: list[str], name: str | None, tailscale:
             print(f"  {style(shared, 'bold', 'green')}  (via tailscale)")
             for line in qr_lines(shared):
                 print(" ", line)
+
+    final_url = entry.get("url") or url
+    if notify and final_url:
+        notify_share(name, final_url)
 
     print(style(f"  stop it with: kit share stop {name}", "dim"))
     return 0
@@ -415,6 +448,10 @@ examples:
   kit share logs my-app -f                     follow a shared app's output
   kit share stop my-app                        stop one
   kit share stop --all                         stop everything
+
+Starting one also announces it over kit notify to everyone discoverable on the LAN, if
+notify.passphrase is set (kit config set notify.passphrase <value>, same on every machine) -
+nothing happens if it isn't. --no-notify skips this for one share.
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -425,6 +462,8 @@ examples:
     p.add_argument("--name", help="a name for this instance (default: the tool's name)")
     p.add_argument("--tailscale", action="store_true",
                    help="also point 'tailscale serve' at it, for devices on your tailnet (needs tailscale installed)")
+    p.add_argument("--no-notify", action="store_true",
+                   help="don't announce it over kit notify (default: announced, if notify.passphrase is set)")
 
     p = sub.add_parser("stop", help="stop a shared app")
     p.add_argument("name", nargs="?")
@@ -440,7 +479,7 @@ examples:
     command = ns.command or "list"
 
     if command == "start":
-        return cmd_start(ns.tool, tool_args, ns.name, ns.tailscale)
+        return cmd_start(ns.tool, tool_args, ns.name, ns.tailscale, not ns.no_notify)
     if command == "stop":
         if not ns.all and not ns.name:
             parser.error("stop needs a name, or --all")

@@ -98,7 +98,7 @@ the block in place, and uninstalling removes only that block. Uninstalling leave
 | `kit help <tool>` | Show the tool's README plus where it lives |
 | `kit <tool> [args]` | Run a tool; aliases work too (`kit t sum 1:30 2h`) |
 | `kit hub` | Open the kit dashboard in your browser |
-| `kit share start <tool> [--name N] [--tailscale] [-- args]` | Launch a web tool in the background, tracked by kit |
+| `kit share start <tool> [--name N] [--tailscale] [--no-notify] [-- args]` | Launch a web tool in the background, tracked by kit |
 | `kit share list` \| `stop <name>\|--all` \| `logs <name> [-f]` | See, stop or read the output of what's currently shared |
 | `kit config ...` | See and change settings for kit and every tool |
 | `kit update` | Update kit from GitHub, install packages and run doctor |
@@ -110,9 +110,12 @@ the block in place, and uninstalling removes only that block. Uninstalling leave
 terminal), detects its URL, and remembers its pid so `kit share list/stop` see and can stop it later, from
 any terminal - and so can `kit share stop --all`. Add `--tailscale` to also point `tailscale serve` at it
 (needs [Tailscale](https://tailscale.com) installed and logged in), so a device on your tailnet can reach it
-over a private link instead of your LAN or the public internet. You still need to get that link to the other
-device somehow - `kit notify` (a web tool itself, so it works the same way: `kit share start notify
---tailscale -- serve`) sends it as a real desktop notification instead of retyping it.
+over a private link instead of your LAN or the public internet.
+
+It also announces the link for you: once `notify.passphrase` is set (`kit config set notify.passphrase
+<value>`, same value on every machine - see `kit help notify`), every `kit share start` broadcasts it over
+`kit notify` to everyone discoverable on the LAN automatically, no extra step. Nothing happens if the
+passphrase isn't set, so this is entirely opt-in by setting it up once; `--no-notify` skips it for one share.
 
 ## Settings
 

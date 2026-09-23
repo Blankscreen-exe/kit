@@ -144,6 +144,9 @@ class Job:
                 self.emit({"type": "url", "url": self.url})
                 if self.share_name:
                     share.update_url(self.share_name, self.url)
+                    # its own thread: notify_share shells out and waits on a LAN broadcast, which
+                    # would otherwise stall this job's own output relay for a second or more
+                    threading.Thread(target=share.notify_share, args=(self.tool, self.url), daemon=True).start()
         self.emit({"type": "output", "text": text})
 
     def finish(self, code: int, error: str | None = None) -> None:
