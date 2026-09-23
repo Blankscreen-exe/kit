@@ -194,6 +194,13 @@ programs can't use it to run commands.
 token: anyone there can see what's running and open its links, but running, stopping or changing anything
 still only works from the machine `kit hub` is running on, token or not.
 
+If another device can't reach it, that's almost always Windows Firewall blocking the port the first
+time an app asks to listen on it (same as `kit serve` and `kit notify`) - allow it on **Private
+networks** under *Windows Security > Firewall & network protection > Allow an app through firewall*,
+or add a rule directly for the port it printed (PowerShell, as Administrator):
+`New-NetFirewallRule -DisplayName "kit hub" -Direction Inbound -Protocol TCP -LocalPort 9800 -Action Allow`
+(swap `9800` for the port it's actually using, e.g. `kit config get kit.hub_port`).
+
 ## Adding a tool
 
 Every sub-folder of `tools/` is a tool, and the folder name is the command. There's no list to update.
@@ -315,6 +322,7 @@ install.sh        Linux/macOS installer / uninstaller
 | `KIT_BACKUP_DIR` | Where `kit ssh`, `kit pathfix`, `kit env` and `kit hosts` save backups before changing files |
 | `KIT_PAD_DIR` | Where `kit pad` keeps its pads (default `%APPDATA%\kit\pad` / `~/.local/share/kit/pad`) |
 | `KIT_TOP_DATA` | Where `kit top` keeps its list of trusted programs |
+| `KIT_NOTIFY_DATA` | Where `kit notify serve` keeps its saved token |
 | `KIT_INBROWSER_DATA` | Where `kit inbrowser` caches the list of inbrowser.app tools |
 | `KIT_FFMPEG` | ffmpeg `kit media` uses: the program or its folder (overrides `media.ffmpeg`) |
 | `KIT_STATE_DIR` | Where kit keeps its update-check state and `kit share`'s registry and logs |

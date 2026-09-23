@@ -31,6 +31,12 @@ now, **q** quits. It never listens on the network itself - this is your own term
 because a "here's everything my machine has open" view is the kind of thing you want to check yourself, not
 broadcast to other devices.
 
+## Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| `port.refresh` | `2` | Seconds between refreshes of the live view (`kit port --live`) |
+
 ## Examples
 
 ```

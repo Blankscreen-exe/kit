@@ -836,5 +836,6 @@ def start_server(port: int, explicit: bool, token: str, lan: bool = False) -> Hu
         except OSError as exc:
             last_error = exc
     if explicit:
-        die(f"can't listen on port {port}: {last_error}")
-    die(f"no free port between {port} and {port + PORT_ATTEMPTS - 1}")
+        die(f"can't listen on port {port}: {last_error} - see what's using it: kit port {port}")
+    die(f"no free port between {port} and {port + PORT_ATTEMPTS - 1} - see what's using them: kit port, "
+        f"or free one up: kit port <N> --kill")

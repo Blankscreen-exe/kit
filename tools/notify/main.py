@@ -291,7 +291,8 @@ def cmd_serve(lan: bool, port: int, rotate: bool, discovery_port: int, passphras
     try:
         server = NotifyServer(host, port, token)
     except OSError as exc:
-        die(f"can't listen on port {port}: {exc}")
+        die(f"can't listen on port {port}: {exc} - see what's using it: kit port {port}, "
+            f"or pick another with --port")
     shown = lan_ip() if lan else "127.0.0.1"
     url = f"http://{shown}:{server.server_address[1]}/?t={token}"
     print(f"kit notify: {url}")
