@@ -40,6 +40,22 @@ def _can_encode(stream: TextIO, text: str) -> bool:
     return True
 
 
+def _can_draw_blocks(stream: TextIO, text: str) -> bool:
+    """Whether block characters will survive the stream, switching it to UTF-8 if that's what it takes.
+
+    Windows hands Python cp1252 whenever the output isn't the console itself (a pipe, Git Bash, a file),
+    and cp1252 has no block characters - which used to leave the QR drawn in '#', unscannable on some
+    phones. UTF-8 is safe to ask for: real consoles already use it, and terminals reading a pipe expect it.
+    """
+    if _can_encode(stream, text):
+        return True
+    try:
+        stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    except (AttributeError, ValueError, OSError):
+        return False
+    return _can_encode(stream, text)
+
+
 def qr_lines(data: str | segno.QRCode, border: int = 2, invert: bool = False, stream: TextIO | None = None) -> list[str]:
     """Terminal rendering of a QR code, one string per line.
 
@@ -57,13 +73,15 @@ def qr_lines(data: str | segno.QRCode, border: int = 2, invert: bool = False, st
 
     rows = [[ink(bool(module)) for module in row] for row in code.matrix_iter(scale=1, border=border)]
 
-    if _can_encode(stream, "▀▄█"):
+    if _can_draw_blocks(stream, "▀▄█"):
         if len(rows) % 2:
             rows.append([ink(False)] * len(rows[0]))  # one more quiet-zone row to pair the last one
         lines = [
             "".join(HALF_BLOCKS[(top, bottom)] for top, bottom in zip(rows[i], rows[i + 1]))
             for i in range(0, len(rows), 2)
         ]
+    elif _can_encode(stream, "█"):
+        lines = ["".join("██" if drawn else "  " for drawn in row) for row in rows]  # squarer than '#'
     else:
         lines = ["".join("##" if drawn else "  " for drawn in row) for row in rows]
 
