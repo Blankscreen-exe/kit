@@ -11,9 +11,11 @@ os.environ.pop("SSLKEYLOGFILE", None)
 
 import argparse  # noqa: E402
 import hmac  # noqa: E402
+import ipaddress  # noqa: E402
 import json  # noqa: E402
 import re  # noqa: E402
 import secrets  # noqa: E402
+import select  # noqa: E402
 import socket  # noqa: E402
 import subprocess  # noqa: E402
 import sys  # noqa: E402
@@ -199,40 +201,90 @@ def _discover_responder(discovery_port: int, http_port: int, token: str, passphr
         sock.close()
 
 
+def broadcast_targets() -> list[tuple[str, str]]:
+    """(local address, broadcast address) for every network this machine is really on.
+
+    A plain 255.255.255.255 only leaves by one interface - whichever the routing table picks - and on
+    a machine with Docker, WSL or a VPN adapter that is often the wrong one: a Windows box here sent
+    every query out the WSL adapter and so only ever found itself. Asking each interface separately
+    is the fix. Falls back to the single broadcast when psutil isn't importable.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return [("", "255.255.255.255")]
+
+    targets: list[tuple[str, str]] = []
+    stats = psutil.net_if_stats()
+    for name, addresses in psutil.net_if_addrs().items():
+        if name in stats and not stats[name].isup:
+            continue
+        for address in addresses:
+            if address.family != socket.AF_INET or not address.netmask:
+                continue
+            if address.address.startswith(("127.", "169.254.")):  # loopback, or no DHCP answer
+                continue
+            try:
+                network = ipaddress.IPv4Interface(f"{address.address}/{address.netmask}").network
+            except ValueError:
+                continue
+            if network.prefixlen >= 31:  # point-to-point (Tailscale, VPNs): nothing to broadcast to
+                continue
+            targets.append((address.address, str(network.broadcast_address)))
+    return targets or [("", "255.255.255.255")]
+
+
 def discover_on_lan(discovery_port: int, passphrase: str) -> list[dict]:
-    """Broadcasts a signed query and collects verified replies for DISCOVER_WAIT seconds."""
+    """Broadcasts a signed query on every network and collects verified replies for DISCOVER_WAIT seconds."""
     ts = time.time()
     query = json.dumps({"magic": DISCOVER_MAGIC, "ts": ts, "mac": _sign(passphrase, f"{DISCOVER_MAGIC}:{ts}")}).encode()
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    sock.settimeout(0.3)
-    found: dict[tuple[str, int], dict] = {}
+
+    sockets: list[socket.socket] = []
+    for local, broadcast in broadcast_targets():
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.settimeout(0.3)
+        try:
+            if local:
+                sock.bind((local, 0))  # binding picks the interface the query goes out of
+            sock.sendto(query, (broadcast, discovery_port))
+        except OSError:
+            sock.close()  # an interface that won't carry it (asleep, no route) isn't worth a message
+            continue
+        sockets.append(sock)
+    if not sockets:
+        warn("couldn't send a discovery query on any network")
+        return []
+
+    found: dict[str, dict] = {}
     try:
-        sock.sendto(query, ("255.255.255.255", discovery_port))
         deadline = time.monotonic() + DISCOVER_WAIT
         while time.monotonic() < deadline:
-            try:
-                data, addr = sock.recvfrom(2048)
-            except socket.timeout:
-                continue
-            except OSError:
-                break
-            try:
-                reply = json.loads(data)
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                continue
-            if not isinstance(reply, dict) or reply.get("magic") != DISCOVER_REPLY_MAGIC:
-                continue
-            port, token, reply_ts = reply.get("port"), reply.get("token"), reply.get("ts")
-            if not isinstance(port, int) or not isinstance(token, str) or not token or not _fresh(reply_ts):
-                continue
-            expected = _sign(passphrase, f"{DISCOVER_REPLY_MAGIC}:{reply_ts}:{token}")
-            if not hmac.compare_digest(str(reply.get("mac", "")), expected):
-                continue  # answered, but doesn't know the same passphrase - don't trust it
-            key = (addr[0], port)
-            found[key] = {"name": reply.get("name") or addr[0], "ip": addr[0], "port": port, "token": token}
+            ready, _, _ = select.select(sockets, [], [], 0.2)
+            for sock in ready:
+                try:
+                    data, addr = sock.recvfrom(2048)
+                except (socket.timeout, OSError):
+                    continue
+                try:
+                    reply = json.loads(data)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+                if not isinstance(reply, dict) or reply.get("magic") != DISCOVER_REPLY_MAGIC:
+                    continue
+                port, token, reply_ts = reply.get("port"), reply.get("token"), reply.get("ts")
+                if not isinstance(port, int) or not isinstance(token, str) or not token or not _fresh(reply_ts):
+                    continue
+                expected = _sign(passphrase, f"{DISCOVER_REPLY_MAGIC}:{reply_ts}:{token}")
+                if not hmac.compare_digest(str(reply.get("mac", "")), expected):
+                    continue  # answered, but doesn't know the same passphrase - don't trust it
+                # One machine answers once per network it shares with us, so key on its token
+                # (stable per machine) rather than the address, or it gets notified twice.
+                found.setdefault(token, {"name": reply.get("name") or addr[0], "ip": addr[0],
+                                         "port": port, "token": token})
     finally:
-        sock.close()
+        for sock in sockets:
+            sock.close()
     return list(found.values())
 
 
