@@ -138,6 +138,12 @@ class FolderServer(http.server.ThreadingHTTPServer):
 
 
 class FolderHandler(http.server.SimpleHTTPRequestHandler):
+    # HTTP/1.1 keeps the connection alive, so the body ends at Content-Length instead of at a socket
+    # close. Closing to mark the end (HTTP/1.0, the default) can drop the tail of a big response on
+    # Windows: ~20% of 100 MB downloads came up short in testing. timeout frees idle keep-alive threads.
+    protocol_version = "HTTP/1.1"
+    timeout = 30
+
     def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
         try:
             status = int(code)

@@ -2,24 +2,30 @@
 
 from __future__ import annotations
 
-import argparse
-import hmac
-import json
 import os
-import re
-import secrets
-import socket
-import subprocess
-import sys
-import threading
-import time
-from concurrent.futures import ThreadPoolExecutor
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, urlparse
-from urllib.request import Request, urlopen
+
+# Avast and similar HTTPS scanners set SSLKEYLOGFILE to a path Python's OpenSSL can't open, which
+# aborts the whole process as soon as the ssl module loads - even when the request is plain http://.
+# Drop it before urllib is imported (see tools/internet-speed).
+os.environ.pop("SSLKEYLOGFILE", None)
+
+import argparse  # noqa: E402
+import hmac  # noqa: E402
+import json  # noqa: E402
+import re  # noqa: E402
+import secrets  # noqa: E402
+import socket  # noqa: E402
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+from concurrent.futures import ThreadPoolExecutor  # noqa: E402
+from http import HTTPStatus  # noqa: E402
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: E402
+from pathlib import Path  # noqa: E402
+from urllib.error import HTTPError, URLError  # noqa: E402
+from urllib.parse import parse_qs, urlparse  # noqa: E402
+from urllib.request import Request, urlopen  # noqa: E402
 
 from kitlib import die, style, warn
 from kitlib.settings import tool_settings
@@ -238,6 +244,11 @@ class NotifyServer(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
+    # HTTP/1.1 keeps the connection alive, so the body ends at Content-Length instead of at a socket
+    # close. Closing to mark the end (HTTP/1.0, the default) can drop the tail of a big response on
+    # Windows: ~20% of 100 MB downloads came up short in testing. timeout frees idle keep-alive threads.
+    protocol_version = "HTTP/1.1"
+    timeout = 30
     server: NotifyServer
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002
