@@ -1,0 +1,12 @@
+{
+  "category": "network",
+  "web": true,
+  "settings": {
+    "page": {"type": "string", "default": "", "env": "KIT_SEND_PAGE",
+             "help": "Receiver page the links point at (empty: the copy kit serves, which only works on this computer)"},
+    "expire": {"type": "string", "default": "2h", "help": "How long a link works: 2h, 90m, 30s, 1h30m"},
+    "port": {"type": "int", "default": 8770, "min": 1, "max": 65535, "help": "Port to try first (the next free one is used if it's taken)"},
+    "once": {"type": "bool", "default": false, "help": "Stop each link after one completed download"},
+    "window": {"type": "bool", "default": true, "help": "Open the sharing window as an app window instead of a browser tab"}
+  }
+}
