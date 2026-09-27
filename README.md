@@ -8,46 +8,49 @@ $ kit
 kit - personal toolbox
 
   DEV
-    dev                            Developer utilities: UUIDs, hashes, base64, JWT decoding, timestamps, JSON, URL encoding and secrets.
-    docker-view     dv             A local web dashboard for Docker containers, images, volumes and networks, with action buttons and the matching docker commands.
+    dev                             Developer utilities: UUIDs, hashes, base64, JWT decoding, timestamps, JSON, URL encoding and secrets.
+    docker-view      dv             A local web dashboard for Docker containers, images, volumes and networks, with action buttons and the matching docker commands.
 
   DOCS
-    cheat           cheatsheet     Open a command cheatsheet for PowerShell, bash, cmd or macOS in your browser, from SS64 or tldr pages.
-    md              md2pdf         Convert a Markdown file into a styled PDF or HTML page with coloured headings, highlighted code and tables.
-    merge-pdf                      Merge images into a single PDF after arranging them on a local page with thumbnails.
+    cheat            cheatsheet     Open a command cheatsheet for PowerShell, bash, cmd or macOS in your browser, from SS64 or tldr pages.
+    md               md2pdf         Convert a Markdown file into a styled PDF or HTML page with coloured headings, highlighted code and tables.
+    merge-pdf                       Merge images into a single PDF after arranging them on a local page with thumbnails.
 
   MEDIA
-    media           ff             Convert, trim, compress and resize videos, make GIFs and pull out audio, with short ffmpeg commands.
+    media            ff             Convert, trim, compress and resize videos, make GIFs and pull out audio, with short ffmpeg commands.
 
   NETWORK
-    hosts                          View and edit the hosts file safely: list, add, block, disable and remove entries, with a backup before every change.
-    internet-speed                 Test your connection's latency, jitter, download and upload speed against Cloudflare, and time TCP connections to any host.
-    notify                         Send a desktop notification to another PC on your LAN or tailnet.
-    port            ports          See what's using network ports, stop it, and find free ports.
-    serve                          Share a folder, or an app running on this computer, with other devices on your network, with a QR code for your phone.
-    ssh                            List, add, remove and connect to the SSH hosts saved in your ~/.ssh/config.
+    hosts                           View and edit the hosts file safely: list, add, block, disable and remove entries, with a backup before every change.
+    internet-speed                  Test your connection's latency, jitter, download and upload speed against Cloudflare, and time TCP connections to any host.
+    notify                          Send a desktop notification to another PC on your LAN or tailnet.
+    port             ports          See what's using network ports, stop it, and find free ports.
+    send                            Send a file straight to someone's browser, peer to peer, with a link they just click.
+    serve                           Share a folder, or an app running on this computer, with other devices on your network, with a QR code for your phone.
+    ssh                             List, add, remove and connect to the SSH hosts saved in your ~/.ssh/config.
 
   PRODUCTIVITY
-    countdown       timer          A big countdown timer in the terminal that you can click or drive with keys, with an alert when time is up.
-    pad             scratch, note  A plain scratch pad in the terminal that saves as you type, for drafting messages and parking links.
-    pomodoro        pomo           A pomodoro focus timer in the terminal that you can drive with the mouse or keyboard, and that keeps a history of your sessions.
+    content-machine  cm             Start Content Machine, the local content pipeline, or run any of its cm commands.
+    countdown        timer          A big countdown timer in the terminal that you can click or drive with keys, with an alert when time is up.
+    pad              scratch, note  A plain scratch pad in the terminal that saves as you type, for drafting messages and parking links.
+    pomodoro         pomo           A pomodoro focus timer in the terminal that you can drive with the mouse or keyboard, and that keeps a history of your sessions.
+    prompt-cache     pc, prompts    Write, find and fill reusable AI prompts in seconds, without managing files.
 
   SYSTEM
-    clean                          Find and safely free disk space: temp files, the trash, package-manager caches and Docker leftovers.
-    env                            See and permanently change environment variables and PATH, on Windows and Linux.
-    fetch           neofetch       Show system information next to colourful ASCII art, in the style of neofetch.
-    pathfix                        Find and clean up duplicate, missing and redundant folders in your PATH.
-    top             procs          Find suspicious programs: a live process list that flags odd locations, fake system names, missing signatures, shady command lines, backdoor ports and autostart entries.
+    clean                           Find and safely free disk space: temp files, the trash, package-manager caches and Docker leftovers.
+    env                             See and permanently change environment variables and PATH, on Windows and Linux.
+    fetch            neofetch       Show system information next to colourful ASCII art, in the style of neofetch.
+    pathfix                         Find and clean up duplicate, missing and redundant folders in your PATH.
+    top              procs          Find suspicious programs: a live process list that flags odd locations, fake system names, missing signatures, shady command lines, backdoor ports and autostart entries.
 
   TEXT
-    banner                         Render text as a big ASCII-art banner using figlet.
+    banner                          Render text as a big ASCII-art banner using figlet.
 
   TIME
-    time            t              Time arithmetic for tracking hours: span between clock times, duration differences and totals.
+    time             t              Time arithmetic for tracking hours: span between clock times, duration differences and totals.
 
   UTILS
-    inbrowser       ib             Open inbrowser.app, a big set of tools that run inside your browser, offline.
-    qr                             Show a QR code in the terminal for any text or URL, or save it as a PNG or SVG.
+    inbrowser        ib             Open inbrowser.app, a big set of tools that run inside your browser, offline.
+    qr                              Show a QR code in the terminal for any text or URL, or save it as a PNG or SVG.
 
 run:       kit <tool> [args]      docs: kit help <tool>
 built-ins: list, help, new, doctor, path, config, update, hub, share
@@ -308,7 +311,7 @@ are picked up exactly like `tools/`. This is handy for private or work-only tool
 ```text
 kit.py            entry point
 core/             registry (finds tools), runner, CLI, `kit new` templates, `kit config`, `kit update`, hub/, `kit share`
-lib/kitlib/       helpers Python tools can import (output, settings, figlet, QR codes, browser, clipboard)
+lib/kitlib/       helpers Python tools can import (output, settings, figlet, QR codes, browser, clipboard, web server)
 tools/            one folder per tool
 vendor/           bundled third-party binaries (figlet for Windows)
 bin/              launchers: kit.ps1 (PowerShell), kit.cmd (cmd), kit (sh)
@@ -334,6 +337,7 @@ install.sh        Linux/macOS installer / uninstaller
 | `KIT_TOP_DATA` | Where `kit top` keeps its list of trusted programs |
 | `KIT_NOTIFY_DATA` | Where `kit notify serve` keeps its saved token |
 | `KIT_INBROWSER_DATA` | Where `kit inbrowser` caches the list of inbrowser.app tools |
+| `KIT_SEND_PAGE` | Receiver page `kit send` links point at (overrides `send.page`) |
 | `KIT_FFMPEG` | ffmpeg `kit media` uses: the program or its folder (overrides `media.ffmpeg`) |
 | `KIT_STATE_DIR` | Where kit keeps its update-check state and `kit share`'s registry and logs |
 | `NO_COLOR` | Turn off coloured output |
