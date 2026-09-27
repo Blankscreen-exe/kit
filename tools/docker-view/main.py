@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from kitlib import die, style, warn
+from kitlib.webserver import KitHandler
 from kitlib.settings import tool_settings
 
 PAGE = Path(__file__).resolve().parent / "page.html"
@@ -313,12 +314,7 @@ class DashboardServer(ThreadingHTTPServer):
         self.allowed_origins = {f"http://{host}" for host in self.allowed_hosts}
 
 
-class Handler(BaseHTTPRequestHandler):
-    # HTTP/1.1 keeps the connection alive, so the body ends at Content-Length instead of at a socket
-    # close. Closing to mark the end (HTTP/1.0, the default) can drop the tail of a big response on
-    # Windows: ~20% of 100 MB downloads came up short in testing. timeout frees idle keep-alive threads.
-    protocol_version = "HTTP/1.1"
-    timeout = 30
+class Handler(KitHandler, BaseHTTPRequestHandler):
     server: DashboardServer
     server_version = "kit-docker-view"
     sys_version = ""

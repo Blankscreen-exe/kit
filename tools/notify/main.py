@@ -28,6 +28,7 @@ from urllib.parse import parse_qs, urlparse  # noqa: E402
 from urllib.request import Request, urlopen  # noqa: E402
 
 from kitlib import die, style, warn
+from kitlib.webserver import KitHandler
 from kitlib.settings import tool_settings
 
 IS_WINDOWS = sys.platform.startswith("win")
@@ -243,12 +244,7 @@ class NotifyServer(ThreadingHTTPServer):
         self.token = token
 
 
-class Handler(BaseHTTPRequestHandler):
-    # HTTP/1.1 keeps the connection alive, so the body ends at Content-Length instead of at a socket
-    # close. Closing to mark the end (HTTP/1.0, the default) can drop the tail of a big response on
-    # Windows: ~20% of 100 MB downloads came up short in testing. timeout frees idle keep-alive threads.
-    protocol_version = "HTTP/1.1"
-    timeout = 30
+class Handler(KitHandler, BaseHTTPRequestHandler):
     server: NotifyServer
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002
