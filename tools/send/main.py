@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import argparse
 import hmac
+import io
 import json
 import mimetypes
 import os
 import re
 import secrets
+import shutil
+import subprocess
 import sys
 import threading
 import time
 import webbrowser
 from dataclasses import dataclass, field
+from datetime import datetime
 from http import HTTPStatus
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,10 +25,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from kitlib import die, style
-from kitlib.webserver import KitHandler
 from kitlib.browser import open_app_window
-from kitlib.qr import qr_lines
+from kitlib.qr import make_qr, qr_lines
 from kitlib.settings import tool_settings
+from kitlib.webserver import KitHandler
 
 TOOL_DIR = Path(os.environ.get("KIT_TOOL_DIR") or Path(__file__).resolve().parent)
 DEFAULT_PORT = 8770
@@ -40,29 +44,52 @@ PAGE_CSP = ("default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; i
             "connect-src 'self' https://0.peerjs.com wss://0.peerjs.com; "
             # the receiver saves through a service worker, reached by framing a same-origin URL
             "worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'")
-SLICE = 8 << 20  # bytes the sender page fetches at a time
+SLICE = 8 << 20        # bytes the sender page reads at a time
+MAX_BODY = 256_000     # a dialog can hand back a lot of long paths
+BROWSE_LIMIT = 2000    # entries returned for one folder
+DIALOG_TIMEOUT = 600   # seconds to wait for someone to finish choosing files
+HISTORY_LIMIT = 100
+MAX_WINDOW_FILE = 1 << 40
+
+
+class ApiError(Exception):
+    """Something the window asked for that kit can't do, with the status to answer with."""
+
+    def __init__(self, message: str, status: int = HTTPStatus.BAD_REQUEST) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 # --- shares --------------------------------------------------------------------------
 
 @dataclass
 class Share:
-    token: str
-    path: Path
+    token: str          # the secret in the link
+    id: str             # a name for the history file, so the link's secret isn't written to disk
     name: str
     size: int
     expires_at: float
-    max_downloads: int | None  # None: no limit
+    max_downloads: int | None       # None: no limit
+    path: Path | None = None        # None when the window holds the file (dropped in)
+    created_at: float = field(default_factory=time.time)
     downloads: int = 0
     active: dict[str, int] = field(default_factory=dict)  # peer -> bytes sent so far
-    dead: str = ""  # why it stopped working ("" while live)
+    dead: str = ""                  # why it stopped working ("" while live)
+    logged_dead: bool = False
+
+    @property
+    def source(self) -> str:
+        return "path" if self.path else "window"
 
     def state(self) -> dict:
         return {
             "token": self.token, "name": self.name, "size": self.size,
             "downloads": self.downloads, "max": self.max_downloads,
             "expires_in": max(0, int(self.expires_at - time.time())),
-            "dead": self.dead,
+            "dead": self.dead, "source": self.source,
+            "folder": str(self.path.parent) if self.path else "",
+            # options can be changed until the first download, after which they are facts
+            "locked": self.downloads > 0 or bool(self.dead),
         }
 
     def check(self) -> str:
@@ -81,7 +108,7 @@ DURATION_RE = re.compile(r"(?:(?P<h>\d+(?:\.\d+)?)\s*h)?\s*(?:(?P<m>\d+(?:\.\d+)
 
 def parse_expire(text: str) -> float:
     """'2h', '90m', '30s', '1h30m' or a bare number of minutes -> seconds."""
-    value = text.strip().lower()
+    value = str(text).strip().lower()
     if re.fullmatch(r"\d+(?:\.\d+)?", value):
         seconds = float(value) * 60
     elif (match := DURATION_RE.fullmatch(value)) and any(match.groupdict().values()):
@@ -91,6 +118,21 @@ def parse_expire(text: str) -> float:
     if seconds <= 0:
         raise ValueError("the expiry must be more than zero")
     return seconds
+
+
+def parse_limit(once: object, maximum: object) -> int | None:
+    """The download limit from the window's two controls (or the CLI's two flags)."""
+    if once:
+        return 1
+    if maximum in (None, "", 0, "0"):
+        return None
+    try:
+        limit = int(maximum)
+    except (TypeError, ValueError):
+        raise ApiError("the download limit has to be a number") from None
+    if limit < 1:
+        raise ApiError("the download limit has to be at least 1")
+    return limit
 
 
 def human_bytes(count: float) -> str:
@@ -110,6 +152,227 @@ def human_time(seconds: float) -> str:
     return f"{seconds}s"
 
 
+# --- history -------------------------------------------------------------------------
+
+def data_path() -> Path:
+    override = os.environ.get("KIT_SEND_DATA")
+    if override:
+        return Path(override).expanduser()
+    if os.name == "nt":
+        base = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return base / "kit" / "send-history.json"
+
+
+class History:
+    """What has been shared, in one small JSON file, so the window can show it after a restart."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.lock = threading.Lock()
+        self.entries: list[dict] = []
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, list):
+                self.entries = [entry for entry in loaded if isinstance(entry, dict)][-HISTORY_LIMIT:]
+        except FileNotFoundError:
+            pass
+        except (OSError, json.JSONDecodeError):
+            try:
+                path.replace(path.with_suffix(".json.bak"))  # keep it rather than quietly overwrite it
+            except OSError:
+                pass
+
+    @staticmethod
+    def fields(share: Share) -> dict:
+        return {
+            "name": share.name, "size": share.size, "downloads": share.downloads,
+            "folder": str(share.path.parent) if share.path else "",
+            "source": share.source,
+            "started": datetime.fromtimestamp(share.created_at).astimezone().isoformat(timespec="seconds"),
+            "ended": datetime.now().astimezone().isoformat(timespec="seconds") if share.dead else "",
+            "note": share.dead,
+        }
+
+    def record(self, share: Share) -> None:
+        with self.lock:
+            for entry in reversed(self.entries):
+                if entry.get("id") == share.id:
+                    entry.update(self.fields(share))
+                    break
+            else:
+                self.entries.append({"id": share.id, **self.fields(share)})
+                del self.entries[:-HISTORY_LIMIT]
+            self.save()
+
+    def clear(self) -> None:
+        with self.lock:
+            self.entries = []
+            self.save()
+
+    def save(self) -> None:
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temp = self.path.with_suffix(".json.tmp")
+            temp.write_text(json.dumps(self.entries, indent=1) + "\n", encoding="utf-8")
+            os.replace(temp, self.path)
+        except OSError:
+            pass  # history is a convenience; never let it break a transfer
+
+
+# --- picking files -------------------------------------------------------------------
+
+# A page can never learn where a dropped file lives, so kit opens the system's own dialog.
+WINDOWS_DIALOG = """
+Add-Type -AssemblyName System.Windows.Forms
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Multiselect = $true
+$dialog.Title = 'kit send - choose files to share'
+$front = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true }
+if ($dialog.ShowDialog($front) -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.FileNames -join \"`n\" }
+$front.Dispose()
+"""
+MAC_DIALOG = [
+    "-e", 'set chosen to choose file with prompt "kit send - choose files to share" with multiple selections allowed',
+    "-e", 'set out to ""',
+    "-e", "repeat with item_ in chosen",
+    "-e", "set out to out & POSIX path of item_ & linefeed",
+    "-e", "end repeat",
+    "-e", "return out",
+]
+
+
+_dialog_command: list[str] | None | str = "unknown"  # looked up once: it can't change mid-run
+
+
+def dialog_command() -> list[str] | None:
+    """How to ask this system for files, or None when it has no file dialog."""
+    global _dialog_command
+    if _dialog_command != "unknown":
+        return _dialog_command  # type: ignore[return-value]
+    _dialog_command = _find_dialog()
+    return _dialog_command
+
+
+def _find_dialog() -> list[str] | None:
+    if sys.platform.startswith("win"):
+        shell = shutil.which("powershell") or shutil.which("pwsh")
+        if not shell:
+            return None
+        # WinForms dialogs need a single-threaded apartment, which Windows PowerShell only uses with -STA.
+        sta = ["-STA"] if Path(shell).name.lower() == "powershell.exe" else []
+        return [shell, "-NoProfile", *sta, "-WindowStyle", "Hidden", "-Command", WINDOWS_DIALOG]
+    if sys.platform == "darwin" and shutil.which("osascript"):
+        return ["osascript", *MAC_DIALOG]
+    if (zenity := shutil.which("zenity")):
+        return [zenity, "--file-selection", "--multiple", "--separator=\n",
+                "--title=kit send - choose files to share"]
+    if (kdialog := shutil.which("kdialog")):
+        return [kdialog, "--title", "kit send - choose files to share",
+                "--getopenfilename", str(Path.home()), "--multiple", "--separate-output"]
+    return None
+
+
+def run_dialog() -> list[str]:
+    """The files someone picked, or [] if they cancelled."""
+    command = dialog_command()
+    if command is None:
+        raise ApiError("this system has no file dialog kit can open - use Browse instead, "
+                       "or install zenity", HTTPStatus.NOT_IMPLEMENTED)
+    options: dict = {"capture_output": True, "text": True, "encoding": "utf-8",
+                     "errors": "replace", "timeout": DIALOG_TIMEOUT}
+    if os.name == "nt":
+        options["creationflags"] = subprocess.CREATE_NO_WINDOW  # the dialog shows; a console doesn't
+    try:
+        result = subprocess.run(command, **options)
+    except subprocess.TimeoutExpired:
+        raise ApiError("the file dialog was left open too long") from None
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ApiError(f"the file dialog didn't start: {exc}") from None
+    if result.returncode != 0:
+        return []  # cancelled (zenity and kdialog both exit non-zero)
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def places() -> list[dict]:
+    """Starting points for the file browser: the usual folders, plus drives on Windows."""
+    home = Path.home()
+    found: list[dict] = []
+    seen: set[str] = set()
+    for label, path in (("Home", home), ("Desktop", home / "Desktop"), ("Downloads", home / "Downloads"),
+                        ("Documents", home / "Documents"), ("This folder", Path.cwd())):
+        try:
+            if path.is_dir() and str(path) not in seen:
+                seen.add(str(path))
+                found.append({"label": label, "path": str(path)})
+        except OSError:
+            continue
+    if os.name == "nt" and hasattr(os, "listdrives"):
+        try:
+            for drive in os.listdrives():
+                if drive not in seen:
+                    seen.add(drive)
+                    found.append({"label": drive.rstrip("\\/"), "path": drive})
+        except OSError:
+            pass
+    return found
+
+
+def browse(raw: str) -> dict:
+    """One folder's contents, folders first. Listing only - files are read through /api/bytes."""
+    target = Path(raw).expanduser() if str(raw).strip() else Path.home()
+    try:
+        target = target.resolve()
+        if target.is_file():
+            target = target.parent  # paste a file's path and land in its folder
+        if not target.is_dir():
+            raise ApiError(f"no such folder: {target}", HTTPStatus.NOT_FOUND)
+        entries = []
+        with os.scandir(target) as scan:
+            for entry in scan:
+                try:
+                    is_dir = entry.is_dir()
+                    stat = entry.stat()
+                except OSError:
+                    continue  # a broken link or a file that vanished mid-listing
+                entries.append({"name": entry.name, "path": entry.path, "dir": is_dir,
+                                "size": 0 if is_dir else stat.st_size, "modified": stat.st_mtime})
+                if len(entries) >= BROWSE_LIMIT:
+                    break
+    except PermissionError:
+        raise ApiError(f"{target} isn't readable", HTTPStatus.FORBIDDEN) from None
+    except OSError as exc:
+        raise ApiError(f"can't open that folder: {exc}") from None
+    entries.sort(key=lambda entry: (not entry["dir"], entry["name"].lower()))
+    return {
+        "path": str(target),
+        "parent": str(target.parent) if target.parent != target else "",
+        "entries": entries,
+        "truncated": len(entries) >= BROWSE_LIMIT,
+        "places": places(),
+    }
+
+
+def readable_file(raw: str) -> tuple[Path, int]:
+    path = Path(str(raw)).expanduser()
+    try:
+        path = path.resolve()
+        stat = path.stat()
+    except OSError as exc:
+        raise ApiError(f"can't read {raw}: {exc}") from None
+    if path.is_dir():
+        raise ApiError(f"{path.name} is a folder - kit send takes files")
+    if not path.is_file():
+        raise ApiError(f"not a file: {path}")
+    if not os.access(path, os.R_OK):
+        raise ApiError(f"can't read {path.name}")
+    return path, stat.st_size
+
+
 # --- server --------------------------------------------------------------------------
 
 def log(message: str) -> None:
@@ -121,16 +384,23 @@ class SendServer(ThreadingHTTPServer):
     # On Windows SO_REUSEADDR lets a second server bind a port that's already in use.
     allow_reuse_address = not sys.platform.startswith("win")
 
-    def __init__(self, host: str, port: int, token: str, peer_id: str, shares: dict[str, Share]) -> None:
+    def __init__(self, host: str, port: int, token: str, peer_id: str, shares: dict[str, Share],
+                 history: History, defaults: dict, auto_exit: bool) -> None:
         super().__init__((host, port), Handler)
         self.token = token
         self.peer_id = peer_id
         self.shares = shares
-        self.page = ""  # set once main() knows which receiver page the links point at
+        self.history = history
+        self.defaults = defaults          # what new shares get unless the window says otherwise
+        self.auto_exit = auto_exit        # started with files: stop once they are all done
+        self.page = ""                    # set once main() knows which receiver page the links point at
         self.cookie_name = f"kit_send_{port}"
         self.lan = host != "127.0.0.1"
         self.allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
         self.finished = threading.Event()  # set when every share is done, so main() can stop
+        self.window_session = ""           # the window that holds the dropped files
+        self.dialog_lock = threading.Lock()
+        self.shares_lock = threading.Lock()
 
     def allow_host(self, host: str) -> None:
         self.allowed_hosts.add(host)
@@ -138,8 +408,26 @@ class SendServer(ThreadingHTTPServer):
     def live_shares(self) -> list[Share]:
         return [share for share in self.shares.values() if not share.check()]
 
+    def new_share(self, name: str, size: int, path: Path | None, expire: float, limit: int | None) -> Share:
+        share = Share(token=secrets.token_urlsafe(16), id=secrets.token_hex(6), name=name, size=size,
+                      path=path, expires_at=time.time() + expire, max_downloads=limit)
+        with self.shares_lock:
+            self.shares[share.token] = share
+        self.history.record(share)
+        return share
+
+    def sweep(self) -> None:
+        """Notice shares that have just expired or hit their limit: log them once, remember them."""
+        for share in list(self.shares.values()):
+            reason = share.check()
+            if reason and not share.logged_dead:
+                share.logged_dead = True
+                log(f"{style('closed', 'dim')}    {share.name}: {reason}")
+                self.history.record(share)
+
     def check_finished(self) -> None:
-        if all(share.check() for share in self.shares.values()):
+        self.sweep()
+        if self.auto_exit and self.shares and all(share.check() for share in self.shares.values()):
             self.finished.set()
 
 
@@ -201,6 +489,14 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
                 return share
         return None
 
+    def live_share(self, token: str) -> Share:
+        share = self.share_for(token)
+        if share is None:
+            raise ApiError("unknown link", HTTPStatus.NOT_FOUND)
+        if (reason := share.check()):
+            raise ApiError(reason, HTTPStatus.GONE)
+        return share
+
     # -- routes
 
     def do_HEAD(self) -> None:
@@ -243,25 +539,44 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
                                         "missing or invalid token - open the address printed in the terminal")
 
         params = parse_qs(url.query)
-        if url.path == "/api/state":
-            return self.send_json(HTTPStatus.OK, {
-                "peer": self.server.peer_id,
-                "slice": SLICE,
-                "shares": [
-                    {**share.state(), "link": share_link(self.server.page, self.server.peer_id, share)}
-                    for share in self.server.shares.values()
-                ],
-            })
-        if url.path == "/api/share":
-            share = self.share_for(params.get("token", [""])[0])
-            if share is None:
-                return self.send_error_json(HTTPStatus.NOT_FOUND, "unknown link")
-            if (reason := share.check()):
-                return self.send_error_json(HTTPStatus.GONE, reason)
-            return self.send_json(HTTPStatus.OK, share.state())
-        if url.path == "/api/bytes":
-            return self.send_bytes(params.get("token", [""])[0])
+        try:
+            if url.path == "/api/state":
+                return self.send_json(HTTPStatus.OK, self.state())
+            if url.path == "/api/share":
+                return self.send_json(HTTPStatus.OK, self.live_share(params.get("token", [""])[0]).state())
+            if url.path == "/api/bytes":
+                return self.send_bytes(params.get("token", [""])[0])
+            if url.path == "/api/browse":
+                return self.send_json(HTTPStatus.OK, browse(params.get("path", [""])[0]))
+            if url.path == "/api/qr":
+                return self.send_qr(params.get("token", [""])[0])
+            if url.path == "/api/history":
+                return self.send_json(HTTPStatus.OK, {"entries": list(reversed(self.server.history.entries))})
+        except ApiError as exc:
+            return self.send_error_json(exc.status, str(exc))
         return self.send_error_json(HTTPStatus.NOT_FOUND, "not found")
+
+    def state(self) -> dict:
+        self.server.sweep()
+        return {
+            "peer": self.server.peer_id,
+            "slice": SLICE,
+            "session": self.server.window_session,
+            "defaults": self.server.defaults,
+            "dialog": dialog_command() is not None,
+            "page": self.server.page,
+            "shares": [
+                {**share.state(), "link": share_link(self.server.page, self.server.peer_id, share)}
+                for share in self.server.shares.values()
+            ],
+        }
+
+    def send_qr(self, token: str) -> None:
+        share = self.live_share(token)
+        link = share_link(self.server.page, self.server.peer_id, share)
+        buffer = io.BytesIO()
+        make_qr(link).save(buffer, kind="svg", scale=4, border=2, dark="#1a1918", light="#ffffff")
+        self.send_body(HTTPStatus.OK, buffer.getvalue(), "image/svg+xml")
 
     def send_bytes(self, token: str) -> None:
         """The file itself, to the sender page only, one Range slice at a time."""
@@ -270,6 +585,8 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
             return self.send_error_json(HTTPStatus.NOT_FOUND, "unknown link")
         if (reason := share.check()):
             return self.send_error_json(HTTPStatus.GONE, reason)
+        if share.path is None:
+            return self.send_error_json(HTTPStatus.CONFLICT, "the window holds this file, kit doesn't")
         try:
             size = share.path.stat().st_size
         except OSError as exc:
@@ -332,7 +649,7 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             return self.send_error_json(HTTPStatus.BAD_REQUEST, "bad Content-Length")
-        if length > 10_000:
+        if length > MAX_BODY:
             return self.send_error_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "request too large")
         try:
             body = json.loads(self.rfile.read(length) or b"{}")
@@ -342,14 +659,115 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
             return self.send_error_json(HTTPStatus.BAD_REQUEST, "expected a JSON object")
 
         path = urlparse(self.path).path
-        if path == "/api/event":
-            return self.send_json(HTTPStatus.OK, self.handle_event(body))
-        if path == "/api/stop":
-            for share in self.server.shares.values():
-                share.dead = share.dead or "you stopped it"
-            self.server.finished.set()
-            return self.send_json(HTTPStatus.OK, {"ok": True})
+        try:
+            if path == "/api/event":
+                return self.send_json(HTTPStatus.OK, self.handle_event(body))
+            if path == "/api/window-hello":
+                return self.send_json(HTTPStatus.OK, self.handle_hello(body))
+            if path == "/api/dialog":
+                return self.send_json(HTTPStatus.OK, self.handle_dialog())
+            if path == "/api/add":
+                return self.send_json(HTTPStatus.OK, self.handle_add(body))
+            if path == "/api/add-window":
+                return self.send_json(HTTPStatus.OK, self.handle_add_window(body))
+            if path == "/api/options":
+                return self.send_json(HTTPStatus.OK, self.handle_options(body))
+            if path == "/api/remove":
+                return self.send_json(HTTPStatus.OK, self.handle_remove(body))
+            if path == "/api/history/clear":
+                self.server.history.clear()
+                return self.send_json(HTTPStatus.OK, {"entries": []})
+            if path == "/api/stop":
+                for share in self.server.shares.values():
+                    share.dead = share.dead or "you stopped it"
+                self.server.sweep()
+                self.server.finished.set()
+                return self.send_json(HTTPStatus.OK, {"ok": True})
+        except ApiError as exc:
+            return self.send_error_json(exc.status, str(exc))
         return self.send_error_json(HTTPStatus.NOT_FOUND, "not found")
+
+    # -- window actions
+
+    def handle_hello(self, body: dict) -> dict:
+        """The window announcing itself. A new one can't serve files an older one was holding."""
+        session = str(body.get("session", ""))[:64] or secrets.token_hex(8)
+        if self.server.window_session and session != self.server.window_session:
+            for share in self.server.shares.values():
+                if share.source == "window" and not share.dead:
+                    share.dead = "the sharing window was reloaded"
+            self.server.sweep()
+        self.server.window_session = session
+        return self.state()
+
+    def handle_dialog(self) -> dict:
+        if not self.server.dialog_lock.acquire(blocking=False):
+            raise ApiError("a file dialog is already open", HTTPStatus.CONFLICT)
+        try:
+            return {"paths": run_dialog()}
+        finally:
+            self.server.dialog_lock.release()
+
+    def options_from(self, body: dict) -> tuple[float, int | None]:
+        try:
+            expire = parse_expire(body.get("expire") or self.server.defaults["expire"])
+        except ValueError as exc:
+            raise ApiError(str(exc)) from None
+        return expire, parse_limit(body.get("once"), body.get("max"))
+
+    def handle_add(self, body: dict) -> dict:
+        paths = body.get("paths")
+        if not isinstance(paths, list) or not paths:
+            raise ApiError("give at least one file")
+        expire, limit = self.options_from(body)
+        added, errors = [], []
+        for raw in paths[:200]:
+            try:
+                path, size = readable_file(str(raw))
+            except ApiError as exc:
+                errors.append(str(exc))
+                continue
+            share = self.server.new_share(path.name, size, path, expire, limit)
+            log(f"{style('added', 'green')}     {style(share.name, 'bold')}  {style(human_bytes(size), 'dim')}")
+            added.append({**share.state(), "link": share_link(self.server.page, self.server.peer_id, share)})
+        if added:
+            self.server.auto_exit = False  # someone is working in the window; don't pull it away
+        return {"added": added, "errors": errors}
+
+    def handle_add_window(self, body: dict) -> dict:
+        """A file dropped onto the window: the page holds the bytes, kit only holds the link."""
+        name = os.path.basename(str(body.get("name", "")).replace("\\", "/")).strip() or "file"
+        try:
+            size = int(body.get("size", 0))
+        except (TypeError, ValueError):
+            raise ApiError("the file size has to be a number") from None
+        if size < 0 or size > MAX_WINDOW_FILE:
+            raise ApiError("that file size doesn't look right")
+        expire, limit = self.options_from(body)
+        share = self.server.new_share(name, size, None, expire, limit)
+        self.server.auto_exit = False
+        log(f"{style('added', 'green')}     {style(share.name, 'bold')}  {style(human_bytes(size), 'dim')}"
+            f"  {style('(held by the window)', 'dim')}")
+        return {**share.state(), "link": share_link(self.server.page, self.server.peer_id, share)}
+
+    def handle_options(self, body: dict) -> dict:
+        share = self.live_share(str(body.get("token", "")))
+        if share.downloads:
+            raise ApiError("this link has already been used, so its limits are fixed", HTTPStatus.CONFLICT)
+        expire, limit = self.options_from(body)
+        share.expires_at = time.time() + expire
+        share.max_downloads = limit
+        self.server.history.record(share)
+        return {**share.state(), "link": share_link(self.server.page, self.server.peer_id, share)}
+
+    def handle_remove(self, body: dict) -> dict:
+        share = self.share_for(str(body.get("token", "")))
+        if share is None:
+            raise ApiError("unknown link", HTTPStatus.NOT_FOUND)
+        share.dead = share.dead or "you removed it"
+        self.server.sweep()
+        self.server.check_finished()
+        return {"ok": True}
 
     def handle_event(self, body: dict) -> dict:
         """Progress reports from the sender page: what the terminal shows, and what enforces the limits."""
@@ -388,8 +806,7 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
                 rate = human_bytes(sent / seconds)
                 log(f"{style('sent', 'bold', 'green')}      {name} to {who}  "
                     f"{human_bytes(sent)} in {human_time(seconds)} ({rate}/s)")
-            if (reason := share.check()):
-                log(f"{style('closed', 'dim')}    {share.name}: {reason}")
+            self.server.history.record(share)
             self.server.check_finished()
             return {"ok": True}
         if kind == "failed":
@@ -401,12 +818,13 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
 
 # --- start ---------------------------------------------------------------------------
 
-def start_server(host: str, port: int, explicit: bool, token: str, peer_id: str, shares: dict[str, Share]) -> SendServer:
+def start_server(host: str, port: int, explicit: bool, token: str, peer_id: str, shares: dict[str, Share],
+                 history: History, defaults: dict, auto_exit: bool) -> SendServer:
     candidates = [port] if explicit else range(port, port + PORT_ATTEMPTS)
     last_error: OSError | None = None
     for candidate in candidates:
         try:
-            return SendServer(host, candidate, token, peer_id, shares)
+            return SendServer(host, candidate, token, peer_id, shares, history, defaults, auto_exit)
         except OSError as exc:
             last_error = exc
     if explicit:
@@ -436,7 +854,8 @@ def main() -> int:
         prog="kit send",
         description="Send a file straight to someone's browser, peer to peer.",
     )
-    parser.add_argument("files", nargs="*", help="the file(s) to share; each one gets its own link")
+    parser.add_argument("files", nargs="*", help="the file(s) to share; each one gets its own link. "
+                                                 "Leave it out to add them in the window instead")
     parser.add_argument("--once", action="store_true", default=None,
                         help="stop the link after one completed download (setting: send.once)")
     parser.add_argument("--max", type=int, metavar="N", help="stop the link after N completed downloads")
@@ -456,35 +875,23 @@ def main() -> int:
                         once=conf.get("once", False))
     args = parser.parse_args()
 
-    if not args.files:
-        parser.error("give a file to send, e.g.: kit send holiday.mp4")
     if args.max is not None and args.max < 1:
         die("--max must be at least 1")
+    expire_text = args.expire or conf.get("expire", "2h")
     try:
-        expire_seconds = parse_expire(args.expire or conf.get("expire", "2h"))
-    except ValueError as exc:
+        expire_seconds = parse_expire(expire_text)
+        limit = parse_limit(args.once, args.max)
+    except (ValueError, ApiError) as exc:
         die(str(exc))
 
     shares: dict[str, Share] = {}
-    expires_at = time.time() + expire_seconds
-    limit = 1 if args.once else args.max
-    for name in args.files:
-        path = Path(name).expanduser()
-        if not path.exists():
-            die(f"no such file: {name}")
-        if path.is_dir():
-            die(f"{name} is a folder - kit send takes files (folders come later)")
-        if not os.access(path, os.R_OK):
-            die(f"can't read {name}")
-        share = Share(token=secrets.token_urlsafe(16), path=path.resolve(), name=path.name,
-                      size=path.stat().st_size, expires_at=expires_at, max_downloads=limit)
-        shares[share.token] = share
-
+    history = History(data_path())
+    defaults = {"expire": expire_text, "once": bool(args.once), "max": args.max}
     token = secrets.token_urlsafe(24)
     peer_id = "kit" + secrets.token_hex(12)  # the matchmaker's name for this window
     host = "0.0.0.0" if args.lan else "127.0.0.1"
     server = start_server(host, args.port or conf.get("port", DEFAULT_PORT), args.port is not None,
-                          token, peer_id, shares)
+                          token, peer_id, shares, history, defaults, auto_exit=bool(args.files))
     port = server.server_address[1]
     address = lan_address() if args.lan else None
     if address:
@@ -497,23 +904,34 @@ def main() -> int:
     local_only = urlparse(page).hostname in ("127.0.0.1", "localhost")
     server.page = page
 
-    many = len(shares) != 1
-    print(f"{style('kit send', 'bold', 'cyan')}  {len(shares)} file{'s' if many else ''}, "
-          f"{'links last' if many else 'link lasts'} {human_time(expire_seconds)}"
-          f"{', one download each' if limit == 1 else f', {limit} downloads each' if limit else ''}")
-    for share in shares.values():
-        link = share_link(page, peer_id, share)
-        print(f"\n  {style(share.name, 'bold')}  {style(human_bytes(share.size), 'dim')}")
-        print(f"  {style(link, 'bold')}")
-        if args.qr and not local_only:
-            for line in qr_lines(link):
-                print("  " + line)
+    try:
+        for name in args.files:
+            path, size = readable_file(name)
+            server.new_share(path.name, size, path, expire_seconds, limit)
+    except ApiError as exc:
+        die(str(exc))
+
+    if shares:
+        many = len(shares) != 1
+        print(f"{style('kit send', 'bold', 'cyan')}  {len(shares)} file{'s' if many else ''}, "
+              f"{'links last' if many else 'link lasts'} {human_time(expire_seconds)}"
+              f"{', one download each' if limit == 1 else f', {limit} downloads each' if limit else ''}")
+        for share in shares.values():
+            link = share_link(page, peer_id, share)
+            print(f"\n  {style(share.name, 'bold')}  {style(human_bytes(share.size), 'dim')}")
+            print(f"  {style(link, 'bold')}")
+            if args.qr and not local_only:
+                for line in qr_lines(link):
+                    print("  " + line)
+    else:
+        print(f"{style('kit send', 'bold', 'cyan')}  no files yet - add them in the sharing window")
+
     if local_only:
-        print(style("\n  this link only works on this computer: publish the receiver page and point at it with", "yellow"))
-        print(style("  --page https://you.github.io/.../r  (or: kit config set send.page ...)", "yellow"))
+        print(style("\n  links only work on this computer: publish the receiver page and point at it with", "yellow"))
+        print(style("  --page https://you.github.io/.../send/  (or: kit config set send.page ...)", "yellow"))
         if args.lan and address:
             print(style(f"  devices on this network can use http://{address}:{port}/r", "dim"))
-    print(style(f"\n  the sharing window must stay open - Ctrl+C here stops sharing", "dim"))
+    print(style("\n  the sharing window must stay open - Ctrl+C here stops sharing", "dim"))
 
     ui = f"http://127.0.0.1:{port}/?token={token}"
     print(style(f"  window: {ui}", "dim"), flush=True)
@@ -527,9 +945,8 @@ def main() -> int:
     thread.start()
     try:
         while not server.finished.wait(0.5):
-            if all(share.check() for share in shares.values()):  # everything expired or hit its limit
-                for share in shares.values():
-                    log(f"{style('closed', 'dim')}    {share.name}: {share.dead}")
+            server.sweep()
+            if server.auto_exit and shares and all(share.check() for share in shares.values()):
                 break
         time.sleep(0.3)  # let the window's last report arrive
     except KeyboardInterrupt:
