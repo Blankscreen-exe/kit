@@ -51,8 +51,11 @@ published anywhere - GitHub Pages is free. It never learns anything about your t
 and the link's token live after the `#`, which browsers never send to a web server.
 
 `--lan` also serves the page to your own network, so another computer or a phone on the same Wi-Fi can
-open it. A plain network address isn't a "secure context", so browsers there fall back to holding the
-file in memory, which suits files under about 300 MB. A published (https) page has no such limit.
+open it. A plain network address isn't a "secure context", which costs two things on that page:
+browsers hold the file in memory instead of streaming it to disk, so keep to files under about 300 MB,
+and they withhold the hashing the page uses to check a file after it arrives - it says so, and checks
+the size instead. Both limits come from the address, not from kit: a published (https) page has
+neither.
 
 ### Limits and expiry
 

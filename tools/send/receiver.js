@@ -32,6 +32,11 @@ const note = (text, kind = "") => { $("note").textContent = text; $("note").clas
 
 // --- where the bytes go --------------------------------------------------------------
 
+// Browsers only expose crypto.subtle on https (and on localhost). A link served straight from the
+// sender's machine - kit send --lan - is plain http, so the file can still arrive and be saved, it
+// just can't be checked afterwards. Worth saying, not worth refusing.
+const CAN_VERIFY = !!(window.crypto && window.crypto.subtle);
+
 function saveMethod() {
   if (typeof window.showSaveFilePicker === "function") return "picker";
   // navigator.serviceWorker exists but is undefined in some private windows, so test the object itself
@@ -42,9 +47,14 @@ function saveMethod() {
 function describe(method) {
   if (method === "picker") return "Saves straight to disk - any size is fine.";
   if (method === "worker") return "Downloads as a stream - any size is fine.";
-  return LINK.size > MEMORY_LIMIT
-    ? `This browser can only hold the file in memory, and ${humanBytes(LINK.size)} is too big for that. Try Chrome or Edge.`
-    : "This browser holds the file in memory while it arrives, which is fine at this size.";
+  if (LINK.size > MEMORY_LIMIT) {
+    return CAN_VERIFY
+      ? `This browser can only hold the file in memory, and ${humanBytes(LINK.size)} is too big for that. Try Chrome or Edge.`
+      : `This link isn't https, so the file has to be held in memory, and ${humanBytes(LINK.size)} is too big for that.`;
+  }
+  return CAN_VERIFY
+    ? "This browser holds the file in memory while it arrives, which is fine at this size."
+    : "Held in memory while it arrives, which is fine at this size. Not https, so the file can't be checked afterwards.";
 }
 
 async function pickerSink() {
@@ -189,19 +199,25 @@ async function receive() {
         if (message.kind === "done") {
           clearInterval(watchdog);
           await pending;
-          const all = new Uint8Array(digests.length * 32);
-          digests.forEach((digest, index) => all.set(digest, index * 32));
-          const root = hex(await crypto.subtle.digest("SHA-256", all));
-          const ok = received === message.bytes && root === message.root;
+          let root = "";
+          if (CAN_VERIFY) {
+            const all = new Uint8Array(digests.length * 32);
+            digests.forEach((digest, index) => all.set(digest, index * 32));
+            root = hex(await crypto.subtle.digest("SHA-256", all));
+          }
+          const ok = received === message.bytes && (!CAN_VERIFY || root === message.root);
           done = true;
           if (ok) {
             await sink.close();
             const seconds = (performance.now() - started) / 1000;
-            note(`Done - ${humanBytes(received)} in ${seconds.toFixed(1)}s, checked and intact.`, "good");
+            note(`Done - ${humanBytes(received)} in ${seconds.toFixed(1)}s, `
+                 + (CAN_VERIFY ? "checked and intact." : "though an https link would also let it be checked."), "good");
             $("bar").querySelector("i").style.width = "100%";
           } else {
             sink.abort();
-            note("The file arrived damaged, so it wasn't saved. Ask the sender to try again.", "bad");
+            note(CAN_VERIFY
+              ? "The file arrived damaged, so it wasn't saved. Ask the sender to try again."
+              : "The file arrived incomplete, so it wasn't saved. Ask the sender to try again.", "bad");
             $("go").disabled = false;
           }
           conn.send(JSON.stringify({ kind: "report", ok, bytes: received }));
@@ -213,11 +229,13 @@ async function receive() {
       const buffer = data instanceof ArrayBuffer ? data : data.buffer;
       received += buffer.byteLength;
       chunks += 1;
-      const copy = buffer.slice(0);
-      pending = pending.then(async () => {
-        digests.push(new Uint8Array(await crypto.subtle.digest("SHA-256", copy)));
-      });
-      if (chunks % HASH_BATCH === 0) await pending;
+      if (CAN_VERIFY) {
+        const copy = buffer.slice(0);
+        pending = pending.then(async () => {
+          digests.push(new Uint8Array(await crypto.subtle.digest("SHA-256", copy)));
+        });
+        if (chunks % HASH_BATCH === 0) await pending;
+      }
       if (sink) sink.write(buffer.slice(0));
       else queued.push(buffer.slice(0));
 
@@ -237,9 +255,6 @@ $("name").textContent = LINK.name;
 $("size").textContent = LINK.size ? humanBytes(LINK.size) : "";
 if (!LINK.peer || !LINK.token) {
   note("This link is incomplete - copy the whole thing, including everything after the #.", "bad");
-  $("go").disabled = true;
-} else if (!window.isSecureContext && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
-  note("This page needs a secure (https) address to save files safely.", "bad");
   $("go").disabled = true;
 } else {
   $("how").textContent = describe(saveMethod());
