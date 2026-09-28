@@ -24,7 +24,7 @@ kit - personal toolbox
     internet-speed                  Test your connection's latency, jitter, download and upload speed against Cloudflare, and time TCP connections to any host.
     notify                          Send a desktop notification to another PC on your LAN or tailnet.
     port             ports          See what's using network ports, stop it, and find free ports.
-    send                            Send a file straight to someone's browser, peer to peer, with a link they just click.
+    send                            Send files to someone's browser with a link, over your network or the internet.
     serve                           Share a folder, or an app running on this computer, with other devices on your network, with a QR code for your phone.
     ssh                             List, add, remove and connect to the SSH hosts saved in your ~/.ssh/config.
 
@@ -337,7 +337,7 @@ install.sh        Linux/macOS installer / uninstaller
 | `KIT_TOP_DATA` | Where `kit top` keeps its list of trusted programs |
 | `KIT_NOTIFY_DATA` | Where `kit notify serve` keeps its saved token |
 | `KIT_INBROWSER_DATA` | Where `kit inbrowser` caches the list of inbrowser.app tools |
-| `KIT_SEND_PAGE` | Receiver page `kit send` links point at (overrides `send.page`) |
+| `KIT_CLOUDFLARED` | cloudflared program `kit send --internet` uses (overrides `send.cloudflared`) |
 | `KIT_FFMPEG` | ffmpeg `kit media` uses: the program or its folder (overrides `media.ffmpeg`) |
 | `KIT_STATE_DIR` | Where kit keeps its update-check state and `kit share`'s registry and logs |
 | `NO_COLOR` | Turn off coloured output |

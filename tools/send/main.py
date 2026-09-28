@@ -1,20 +1,25 @@
-"""Send a file straight to someone's browser: kit holds it, a local page does the transferring."""
+"""Send files to someone's browser with a link: kit serves them over your network or the internet."""
 
 from __future__ import annotations
 
 import argparse
 import hmac
+import html
 import io
+import itertools
 import json
 import mimetypes
 import os
 import re
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+import urllib.request
 import webbrowser
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -30,26 +35,24 @@ from kitlib.qr import make_qr, qr_lines
 from kitlib.settings import tool_settings
 from kitlib.webserver import KitHandler
 
+from tunnel import Tunnel, TunnelError, download_cloudflared, find_cloudflared, ssl_context
+
 TOOL_DIR = Path(os.environ.get("KIT_TOOL_DIR") or Path(__file__).resolve().parent)
 DEFAULT_PORT = 8770
 PORT_ATTEMPTS = 20
-STATIC = {
-    "/sender.js": "text/javascript; charset=utf-8",
-    "/receiver.js": "text/javascript; charset=utf-8",
-    "/peerjs.min.js": "text/javascript; charset=utf-8",
-    "/sw.js": "text/javascript; charset=utf-8",
-}
-# The pages talk to the PeerJS cloud (the free matchmaker) and to this server, nothing else.
+STATIC = {"/sender.js": "text/javascript; charset=utf-8"}
 PAGE_CSP = ("default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; "
-            "connect-src 'self' https://0.peerjs.com wss://0.peerjs.com; "
-            # the receiver saves through a service worker, reached by framing a same-origin URL
-            "worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'")
-SLICE = 8 << 20        # bytes the sender page reads at a time
+            "connect-src 'self'; base-uri 'none'; form-action 'none'")
+DOWNLOAD_CSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+PING = "/_kit/ping"   # what kit fetches through a new tunnel to know it really works
+LINK_RE = re.compile(r"/d/([A-Za-z0-9_-]{16,64})(/file)?/?")
+BLOCK = 1 << 20
 MAX_BODY = 256_000     # a dialog can hand back a lot of long paths
 BROWSE_LIMIT = 2000    # entries returned for one folder
 DIALOG_TIMEOUT = 600   # seconds to wait for someone to finish choosing files
 HISTORY_LIMIT = 100
-MAX_WINDOW_FILE = 1 << 40
+MAX_UPLOAD = 1 << 40
+PROGRESS_EVERY = 10    # seconds between progress lines when the terminal can't redraw one
 
 
 class ApiError(Exception):
@@ -60,7 +63,66 @@ class ApiError(Exception):
         self.status = status
 
 
+class SetupError(Exception):
+    """A mode that couldn't be started (no network, no tunnel...)."""
+
+
+# --- terminal ------------------------------------------------------------------------
+
+class Console:
+    """Log lines, plus one progress line at the bottom that redraws in place on a terminal."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.status = ""
+        self.tty = sys.stdout.isatty()
+
+    def _clear(self) -> None:
+        if self.tty and self.status:
+            sys.stdout.write("\r" + " " * min(len(self.status), self._width()) + "\r")
+
+    def _width(self) -> int:
+        return max(20, shutil.get_terminal_size((100, 20)).columns - 1)
+
+    def log(self, message: str) -> None:
+        with self.lock:
+            self._clear()
+            print(f"{style(time.strftime('%H:%M:%S'), 'dim')}  {message}", flush=True)
+            if self.tty and self.status:
+                sys.stdout.write(self.status[: self._width()])
+                sys.stdout.flush()
+
+    def show(self, text: str) -> None:
+        """Replace the progress line (a terminal only; elsewhere progress goes through log())."""
+        if not self.tty:
+            return
+        with self.lock:
+            self._clear()
+            self.status = text
+            sys.stdout.write(text[: self._width()])
+            sys.stdout.flush()
+
+
+console = Console()
+log = console.log
+
+
 # --- shares --------------------------------------------------------------------------
+
+@dataclass
+class Transfer:
+    id: int
+    who: str
+    start: int                     # first byte of this response (non-zero when a download resumes)
+    total: int                     # bytes this response will carry
+    sent: int = 0
+    began: float = field(default_factory=time.time)
+
+    def state(self, size: int) -> dict:
+        seconds = max(time.time() - self.began, 0.1)
+        return {"id": self.id, "who": self.who, "done": self.start + self.sent, "size": size,
+                "rate": self.sent / seconds}
+
 
 @dataclass
 class Share:
@@ -68,18 +130,19 @@ class Share:
     id: str             # a name for the history file, so the link's secret isn't written to disk
     name: str
     size: int
+    path: Path
     expires_at: float
     max_downloads: int | None       # None: no limit
-    path: Path | None = None        # None when the window holds the file (dropped in)
+    copied: bool = False            # a file dropped on the window, copied into a temp folder
     created_at: float = field(default_factory=time.time)
     downloads: int = 0
-    active: dict[str, int] = field(default_factory=dict)  # peer -> bytes sent so far
+    active: dict[int, Transfer] = field(default_factory=dict)
     dead: str = ""                  # why it stopped working ("" while live)
     logged_dead: bool = False
 
     @property
     def source(self) -> str:
-        return "path" if self.path else "window"
+        return "copy" if self.copied else "path"
 
     def state(self) -> dict:
         return {
@@ -87,9 +150,10 @@ class Share:
             "downloads": self.downloads, "max": self.max_downloads,
             "expires_in": max(0, int(self.expires_at - time.time())),
             "dead": self.dead, "source": self.source,
-            "folder": str(self.path.parent) if self.path else "",
+            "folder": "" if self.copied else str(self.path.parent),
             # options can be changed until the first download, after which they are facts
             "locked": self.downloads > 0 or bool(self.dead),
+            "active": [transfer.state(self.size) for transfer in list(self.active.values())],
         }
 
     def check(self) -> str:
@@ -154,7 +218,7 @@ def human_time(seconds: float) -> str:
 
 # --- history -------------------------------------------------------------------------
 
-def data_path() -> Path:
+def data_dir() -> Path:
     override = os.environ.get("KIT_SEND_DATA")
     if override:
         return Path(override).expanduser()
@@ -164,7 +228,7 @@ def data_path() -> Path:
         base = Path.home() / "Library" / "Application Support"
     else:
         base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
-    return base / "kit" / "send-history.json"
+    return base / "kit"
 
 
 class History:
@@ -190,7 +254,7 @@ class History:
     def fields(share: Share) -> dict:
         return {
             "name": share.name, "size": share.size, "downloads": share.downloads,
-            "folder": str(share.path.parent) if share.path else "",
+            "folder": "" if share.copied else str(share.path.parent),
             "source": share.source,
             "started": datetime.fromtimestamp(share.created_at).astimezone().isoformat(timespec="seconds"),
             "ended": datetime.now().astimezone().isoformat(timespec="seconds") if share.dead else "",
@@ -225,7 +289,7 @@ class History:
 
 # --- picking files -------------------------------------------------------------------
 
-# A page can never learn where a dropped file lives, so kit opens the system's own dialog.
+# A page can never learn where a chosen file lives, so kit opens the system's own dialog.
 WINDOWS_DIALOG = """
 Add-Type -AssemblyName System.Windows.Forms
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -323,7 +387,7 @@ def places() -> list[dict]:
 
 
 def browse(raw: str) -> dict:
-    """One folder's contents, folders first. Listing only - files are read through /api/bytes."""
+    """One folder's contents, folders first."""
     target = Path(raw).expanduser() if str(raw).strip() else Path.home()
     try:
         target = target.resolve()
@@ -373,48 +437,87 @@ def readable_file(raw: str) -> tuple[Path, int]:
     return path, stat.st_size
 
 
-# --- server --------------------------------------------------------------------------
+# --- addresses -----------------------------------------------------------------------
 
-def log(message: str) -> None:
-    print(f"{style(time.strftime('%H:%M:%S'), 'dim')}  {message}", flush=True)
+def lan_address() -> str | None:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("10.255.255.255", 1))  # sends nothing; picks the outgoing interface
+            address = sock.getsockname()[0]
+    except OSError:
+        return None
+    return None if address.startswith(("127.", "0.")) else address
 
 
-class SendServer(ThreadingHTTPServer):
-    daemon_threads = True
-    # On Windows SO_REUSEADDR lets a second server bind a port that's already in use.
-    allow_reuse_address = not sys.platform.startswith("win")
+def public_address() -> str:
+    """This machine's address as the internet sees it, asked of Cloudflare."""
+    try:
+        request = urllib.request.Request("https://www.cloudflare.com/cdn-cgi/trace", headers={"User-Agent": "kit-send"})
+        with urllib.request.urlopen(request, timeout=10, context=ssl_context()) as response:
+            text = response.read().decode("utf-8", "replace")
+    except OSError as exc:
+        raise SetupError(f"couldn't find this machine's public address: {exc} - give it with --address") from None
+    match = re.search(r"^ip=(.+)$", text, re.M)
+    if not match:
+        raise SetupError("couldn't find this machine's public address - give it with --address")
+    address = match.group(1).strip()
+    return f"[{address}]" if ":" in address else address
 
-    def __init__(self, host: str, port: int, token: str, peer_id: str, shares: dict[str, Share],
-                 history: History, defaults: dict, auto_exit: bool) -> None:
-        super().__init__((host, port), Handler)
-        self.token = token
-        self.peer_id = peer_id
-        self.shares = shares
+
+def no_display() -> bool:
+    """True when a window can't be shown here: an SSH session, or Linux without a desktop."""
+    if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
+        return True
+    if os.name == "nt" or sys.platform == "darwin":
+        return False
+    return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+# --- the app: shares, and how the outside world reaches them -------------------------
+
+class App:
+    def __init__(self, history: History, defaults: dict, auto_exit: bool, port: int, explicit_port: bool,
+                 internet_kind: str, address: str, cloudflared: str) -> None:
+        self.shares: dict[str, Share] = {}
         self.history = history
         self.defaults = defaults          # what new shares get unless the window says otherwise
         self.auto_exit = auto_exit        # started with files: stop once they are all done
-        self.page = ""                    # set once main() knows which receiver page the links point at
-        self.cookie_name = f"kit_send_{port}"
-        self.lan = host != "127.0.0.1"
-        self.allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        self.port = port                  # the port links use on the LAN or a public address
+        self.explicit_port = explicit_port
+        self.internet_kind = internet_kind  # "tunnel" or "public"
+        self.address = address            # --address: the public name to put in links
+        self.cloudflared = cloudflared
+        self.mode = ""                    # "lan" or "internet"
+        self.status = ""                  # "" when links work; "starting" or a problem otherwise
+        self.base = ""                    # what every link starts with
+        self.share_server: ShareServer | None = None
+        self.tunnel: Tunnel | None = None
         self.finished = threading.Event()  # set when every share is done, so main() can stop
-        self.window_session = ""           # the window that holds the dropped files
+        self.lock = threading.Lock()
+        self.mode_lock = threading.Lock()
         self.dialog_lock = threading.Lock()
-        self.shares_lock = threading.Lock()
+        self.transfer_ids = itertools.count(1)
+        self.upload_dir: Path | None = None
 
-    def allow_host(self, host: str) -> None:
-        self.allowed_hosts.add(host)
+    # -- shares
 
-    def live_shares(self) -> list[Share]:
-        return [share for share in self.shares.values() if not share.check()]
-
-    def new_share(self, name: str, size: int, path: Path | None, expire: float, limit: int | None) -> Share:
+    def new_share(self, name: str, size: int, path: Path, expire: float, limit: int | None,
+                  copied: bool = False) -> Share:
         share = Share(token=secrets.token_urlsafe(16), id=secrets.token_hex(6), name=name, size=size,
-                      path=path, expires_at=time.time() + expire, max_downloads=limit)
-        with self.shares_lock:
+                      path=path, expires_at=time.time() + expire, max_downloads=limit, copied=copied)
+        with self.lock:
             self.shares[share.token] = share
         self.history.record(share)
         return share
+
+    def share_for(self, token: str) -> Share | None:
+        for share in list(self.shares.values()):
+            if hmac.compare_digest(share.token.encode(), token.encode()):
+                return share
+        return None
+
+    def link(self, share: Share) -> str:
+        return f"{self.base}/d/{share.token}" if self.base and not self.status else ""
 
     def sweep(self) -> None:
         """Notice shares that have just expired or hit their limit: log them once, remember them."""
@@ -427,17 +530,327 @@ class SendServer(ThreadingHTTPServer):
 
     def check_finished(self) -> None:
         self.sweep()
-        if self.auto_exit and self.shares and all(share.check() for share in self.shares.values()):
+        if self.auto_exit and self.shares and all(share.check() and not share.active
+                                                  for share in self.shares.values()):
             self.finished.set()
 
+    # -- modes
 
-class Handler(KitHandler, BaseHTTPRequestHandler):
-    server: SendServer
+    def set_mode(self, mode: str) -> None:
+        """Point the links at the LAN or the internet. Raises SetupError if that can't be done."""
+        with self.mode_lock:
+            self.mode, self.status = mode, "starting"
+            self._close_outside()
+            try:
+                if mode == "lan":
+                    self._start_lan()
+                elif self.internet_kind == "public":
+                    self._start_public()
+                else:
+                    self._start_tunnel()
+            except SetupError as exc:
+                self._close_outside()
+                self.status = str(exc)
+                raise
+            self.status = ""
+
+    def _listen(self, host: str, port: int, explicit: bool) -> ShareServer:
+        candidates = [port] if explicit or port == 0 else range(port, port + PORT_ATTEMPTS)
+        last: OSError | None = None
+        for candidate in candidates:
+            try:
+                server = ShareServer((host, candidate), self)
+                break
+            except OSError as exc:
+                last = exc
+        else:
+            if explicit:
+                raise SetupError(f"can't listen on port {port}: {last}")
+            raise SetupError(f"no free port between {port} and {port + PORT_ATTEMPTS - 1}")
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.share_server = server
+        return server
+
+    def _start_lan(self) -> None:
+        address = lan_address()
+        if not address:
+            raise SetupError("this computer isn't on a network - connect to one, or use --internet")
+        server = self._listen("0.0.0.0", self.port, self.explicit_port)
+        self.base = f"http://{address}:{server.server_address[1]}"
+
+    def _start_public(self) -> None:
+        address = self.address or public_address()
+        server = self._listen("0.0.0.0", self.port, self.explicit_port)
+        port = server.server_address[1]
+        if port != self.port:
+            log(style(f"port {self.port} was taken, so links use {port} - that's the one to open", "yellow"))
+        self.base = f"http://{address}:{port}"
+
+    def _start_tunnel(self) -> None:
+        server = self._listen("127.0.0.1", 0, False)   # only cloudflared talks to it
+        server.behind_tunnel = True
+        program = find_cloudflared(self.cloudflared, data_dir())
+        try:
+            if program is None:
+                if self.cloudflared:
+                    raise SetupError(f"send.cloudflared points at {self.cloudflared}, which isn't there")
+                program = download_cloudflared(data_dir(), log)
+            log(style("opening a tunnel through Cloudflare...", "dim"))
+            tunnel = Tunnel(program, server.server_address[1])
+            self.tunnel = tunnel
+            self.base = tunnel.start()
+            tunnel.check(PING)
+        except TunnelError as exc:
+            raise SetupError(str(exc)) from None
+
+    def _close_outside(self) -> None:
+        # Stops new downloads only: ones already running have their own connections and finish.
+        if self.tunnel:
+            self.tunnel.stop()
+            self.tunnel = None
+        if self.share_server:
+            self.share_server.shutdown()
+            self.share_server.server_close()
+            self.share_server = None
+        self.base = ""
+
+    def close(self) -> None:
+        with self.mode_lock:
+            self._close_outside()
+        if self.upload_dir:
+            shutil.rmtree(self.upload_dir, ignore_errors=True)
+
+    def describe_mode(self) -> str:
+        if self.mode == "lan":
+            return "devices on this network"
+        if self.internet_kind == "public":
+            return "anyone on the internet, through this machine's public address"
+        return "anyone on the internet, through a Cloudflare tunnel"
+
+    # -- progress
+
+    def progress_line(self) -> str:
+        parts = []
+        for share in list(self.shares.values()):
+            for transfer in list(share.active.values()):
+                state = transfer.state(share.size)
+                percent = 100 * state["done"] / share.size if share.size else 100
+                parts.append(f"{share.name} -> {transfer.who}  {percent:.0f}%  {human_bytes(state['rate'])}/s")
+        return ("  sending: " + "  |  ".join(parts)) if parts else ""
+
+
+# --- the outside: download links only -----------------------------------------------
+
+class QuietServer(ThreadingHTTPServer):
+    daemon_threads = True
+    # On Windows SO_REUSEADDR lets a second server bind a port that's already in use.
+    allow_reuse_address = not sys.platform.startswith("win")
+
+    def handle_error(self, request, client_address) -> None:
+        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
+            return  # a client (or cloudflared) went away mid-request; not worth a traceback
+        super().handle_error(request, client_address)
+
+
+class ShareServer(QuietServer):
+
+    def __init__(self, address: tuple[str, int], app: App) -> None:
+        super().__init__(address, ShareHandler)
+        self.app = app
+        self.behind_tunnel = False
+
+
+class ShareHandler(KitHandler, BaseHTTPRequestHandler):
+    """What the people you send to reach: a download page and the file behind each link, nothing else."""
+
+    server: ShareServer
     server_version = "kit-send"
     sys_version = ""
 
     def log_message(self, format: str, *args: object) -> None:
-        pass  # the terminal shows transfers, not requests
+        pass  # the terminal shows downloads, not requests
+
+    def who(self) -> str:
+        if self.server.behind_tunnel:
+            # cloudflared is the only thing that can reach a tunnel listener, so its header is trustworthy
+            return self.headers.get("CF-Connecting-IP", "") or "someone"
+        return self.client_address[0]
+
+    def send_text(self, status: int, text: str, content_type: str = "text/plain; charset=utf-8",
+                  extra: dict | None = None) -> None:
+        body = text.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        for key, value in (extra or {}).items():
+            self.send_header(key, value)
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def send_page(self, status: int, **values: str) -> None:
+        page = (TOOL_DIR / "download.html").read_text(encoding="utf-8")
+        values.setdefault("button", "")
+        values.setdefault("facts", "")
+        for key, value in values.items():
+            page = page.replace("{{" + key + "}}", value)
+        self.send_text(status, page, "text/html; charset=utf-8",
+                       {"Content-Security-Policy": DOWNLOAD_CSP, "X-Frame-Options": "DENY"})
+
+    def refuse(self, status: int, wants_page: bool, title: str, detail: str) -> None:
+        if wants_page:
+            return self.send_page(status, title=html.escape(title), detail=html.escape(detail))
+        return self.send_text(status, f"{title}: {detail}\n")
+
+    def do_HEAD(self) -> None:
+        self.do_GET()
+
+    def do_GET(self) -> None:
+        path = urlparse(self.path).path
+        if path == PING:
+            return self.send_text(HTTPStatus.OK, "ok\n")
+        match = LINK_RE.fullmatch(path)
+        # A browser opening the link gets a page with a Download button; curl and wget get the file.
+        wants_page = "text/html" in self.headers.get("Accept", "") and not (match and match[2])
+        if not match:
+            return self.refuse(HTTPStatus.NOT_FOUND, wants_page, "Nothing here",
+                               "Ask whoever sent you the link for the whole thing.")
+        share = self.server.app.share_for(match[1])
+        if share is None:
+            return self.refuse(HTTPStatus.NOT_FOUND, wants_page, "This link doesn't work",
+                               "It's wrong, or the sender has stopped sharing. Ask them for a new one.")
+        if (reason := share.check()):
+            return self.refuse(HTTPStatus.GONE, wants_page, "This link has closed",
+                               reason[0].upper() + reason[1:] + ". Ask the sender for a new one.")
+        if wants_page:
+            return self.download_page(share)
+        return self.send_file(share)
+
+    def download_page(self, share: Share) -> None:
+        facts = [f"Link works for {human_time(share.expires_at - time.time())} more"]
+        if share.max_downloads is not None:
+            left = share.max_downloads - share.downloads
+            facts.append("one download only" if share.max_downloads == 1
+                         else f"{left} download{'s' if left != 1 else ''} left")
+        href = f"/d/{share.token}/file"
+        self.send_page(HTTPStatus.OK, title=html.escape(share.name), detail=html.escape(human_bytes(share.size)),
+                       button=f'<a class="button" href="{href}" download>Download</a>',
+                       facts=html.escape(" · ".join(facts)))
+
+    def send_file(self, share: Share) -> None:
+        app = self.server.app
+        try:
+            size = share.path.stat().st_size
+        except OSError as exc:
+            return self.send_text(HTTPStatus.GONE, f"The file can't be read any more: {exc}\n")
+
+        start, end = 0, size - 1
+        status = HTTPStatus.OK
+        header = self.headers.get("Range")
+        if header and size:
+            match = re.fullmatch(r"bytes=(\d*)-(\d*)", header.strip())
+            if not match or not (match[1] or match[2]):
+                return self.send_text(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE, "bad Range\n")
+            if match[1]:
+                start = int(match[1])
+                end = int(match[2]) if match[2] else size - 1
+            else:  # a suffix range: the last N bytes
+                start = max(0, size - int(match[2]))
+            if start >= size or start > end:
+                self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            end = min(end, size - 1)
+            status = HTTPStatus.PARTIAL_CONTENT
+        length = max(0, end - start + 1)
+        fresh = start == 0
+
+        transfer = None
+        if self.command == "GET":
+            with app.lock:
+                # A limited link can't be started by more people than it has downloads left, or two
+                # recipients of a --once link could both finish.
+                if fresh and share.max_downloads is not None:
+                    starting = sum(1 for t in share.active.values() if t.start == 0)
+                    if share.downloads + starting >= share.max_downloads:
+                        return self.send_text(HTTPStatus.CONFLICT,
+                                              "Someone is downloading this file right now, and the link "
+                                              "only allows that many downloads. Try again in a moment.\n")
+                transfer = Transfer(next(app.transfer_ids), self.who(), start, length)
+                share.active[transfer.id] = transfer
+
+        ascii_name = share.name.encode("ascii", "replace").decode().replace('"', "'").replace("?", "_")
+        self.send_response(status)
+        self.send_header("Content-Type", mimetypes.guess_type(share.name)[0] or "application/octet-stream")
+        self.send_header("Content-Disposition",
+                         f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(share.name, safe='')}")
+        self.send_header("Content-Length", str(length))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        if status == HTTPStatus.PARTIAL_CONTENT:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.end_headers()
+        if transfer is None:
+            return
+
+        who = style(transfer.who, "dim")
+        name = style(share.name, "bold")
+        log(f"{style('sending', 'cyan')}   {name} to {who}" if fresh
+            else f"{style('resuming', 'cyan')}  {name} to {who} from {100 * start / max(size, 1):.0f}%")
+        try:
+            with share.path.open("rb") as handle:
+                handle.seek(start)
+                while transfer.sent < length:
+                    block = handle.read(min(BLOCK, length - transfer.sent))
+                    if not block:
+                        break
+                    self.wfile.write(block)
+                    transfer.sent += len(block)
+            self.wfile.flush()
+        except OSError:
+            pass  # the recipient went away; said below
+        finally:
+            with app.lock:
+                share.active.pop(transfer.id, None)
+
+        seconds = max(time.time() - transfer.began, 0.001)
+        if transfer.sent == length and end == size - 1:
+            share.downloads += 1
+            log(f"{style('sent', 'bold', 'green')}      {name} to {who}  {human_bytes(transfer.sent)} "
+                f"in {human_time(seconds)} ({human_bytes(transfer.sent / seconds)}/s)")
+            app.history.record(share)
+        elif transfer.sent < length:
+            log(f"{style('stopped', 'yellow')}   {name} to {who} at "
+                f"{100 * (start + transfer.sent) / max(size, 1):.0f}% - they can resume it")
+        app.check_finished()
+
+
+# --- the inside: the sharing window and its API ------------------------------------
+
+class ControlServer(QuietServer):
+
+    def __init__(self, app: App, token: str) -> None:
+        super().__init__(("127.0.0.1", 0), ControlHandler)
+        port = self.server_address[1]
+        self.app = app
+        self.token = token
+        self.cookie_name = f"kit_send_{port}"
+        self.allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+
+
+class ControlHandler(KitHandler, BaseHTTPRequestHandler):
+    server: ControlServer
+    server_version = "kit-send"
+    sys_version = ""
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
 
     # -- responses
 
@@ -460,9 +873,9 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
         self.send_json(status, {"error": message})
 
     def send_page(self, status: int, name: str, extra: dict | None = None) -> None:
-        html = (TOOL_DIR / name).read_text(encoding="utf-8")
+        page = (TOOL_DIR / name).read_text(encoding="utf-8")
         headers = {"Content-Security-Policy": PAGE_CSP, "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"}
-        self.send_body(status, html.encode("utf-8"), "text/html; charset=utf-8", {**headers, **(extra or {})})
+        self.send_body(status, page.encode("utf-8"), "text/html; charset=utf-8", {**headers, **(extra or {})})
 
     # -- checks
 
@@ -483,19 +896,16 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
     def authorized(self) -> bool:
         return hmac.compare_digest(self.request_token().encode(), self.server.token.encode())
 
-    def share_for(self, token: str) -> Share | None:
-        for share in self.server.shares.values():
-            if hmac.compare_digest(share.token.encode(), token.encode()):
-                return share
-        return None
-
     def live_share(self, token: str) -> Share:
-        share = self.share_for(token)
+        share = self.server.app.share_for(token)
         if share is None:
             raise ApiError("unknown link", HTTPStatus.NOT_FOUND)
         if (reason := share.check()):
             raise ApiError(reason, HTTPStatus.GONE)
         return share
+
+    def with_link(self, share: Share) -> dict:
+        return {**share.state(), "link": self.server.app.link(share)}
 
     # -- routes
 
@@ -517,17 +927,11 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
                 return self.send_page(HTTPStatus.UNAUTHORIZED, "denied.html")
             return self.send_page(HTTPStatus.OK, "sender.html")
 
-        # The receiver page is deliberately open: its secrets live in the link's # fragment, which the
-        # browser never sends here. It is the same static page that gets published for remote people.
-        if url.path in ("/r", "/r/"):
-            return self.send_page(HTTPStatus.OK, "receiver.html")
-
         if url.path in STATIC:
-            if url.path in ("/sender.js",) and not self.authorized():
+            if not self.authorized():
                 return self.send_error_json(HTTPStatus.UNAUTHORIZED, "missing or invalid token")
             body = (TOOL_DIR / url.path.lstrip("/")).read_bytes()
-            extra = {"Service-Worker-Allowed": "/"} if url.path == "/sw.js" else None
-            return self.send_body(HTTPStatus.OK, body, STATIC[url.path], extra)
+            return self.send_body(HTTPStatus.OK, body, STATIC[url.path])
 
         if url.path == "/favicon.ico":
             return self.send_body(HTTPStatus.NO_CONTENT, b"", "image/x-icon")
@@ -542,97 +946,34 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
         try:
             if url.path == "/api/state":
                 return self.send_json(HTTPStatus.OK, self.state())
-            if url.path == "/api/share":
-                return self.send_json(HTTPStatus.OK, self.live_share(params.get("token", [""])[0]).state())
-            if url.path == "/api/bytes":
-                return self.send_bytes(params.get("token", [""])[0])
             if url.path == "/api/browse":
                 return self.send_json(HTTPStatus.OK, browse(params.get("path", [""])[0]))
             if url.path == "/api/qr":
                 return self.send_qr(params.get("token", [""])[0])
             if url.path == "/api/history":
-                return self.send_json(HTTPStatus.OK, {"entries": list(reversed(self.server.history.entries))})
+                return self.send_json(HTTPStatus.OK, {"entries": list(reversed(self.server.app.history.entries))})
         except ApiError as exc:
             return self.send_error_json(exc.status, str(exc))
         return self.send_error_json(HTTPStatus.NOT_FOUND, "not found")
 
     def state(self) -> dict:
-        self.server.sweep()
+        app = self.server.app
+        app.sweep()
         return {
-            "peer": self.server.peer_id,
-            "slice": SLICE,
-            "session": self.server.window_session,
-            "defaults": self.server.defaults,
+            "mode": app.mode, "kind": app.internet_kind, "status": app.status, "base": app.base,
+            "reach": app.describe_mode(),
+            "defaults": app.defaults,
             "dialog": dialog_command() is not None,
-            "page": self.server.page,
-            "shares": [
-                {**share.state(), "link": share_link(self.server.page, self.server.peer_id, share)}
-                for share in self.server.shares.values()
-            ],
+            "shares": [self.with_link(share) for share in list(app.shares.values())],
         }
 
     def send_qr(self, token: str) -> None:
-        share = self.live_share(token)
-        link = share_link(self.server.page, self.server.peer_id, share)
+        link = self.server.app.link(self.live_share(token))
+        if not link:
+            raise ApiError("the link isn't ready yet", HTTPStatus.CONFLICT)
         buffer = io.BytesIO()
         make_qr(link).save(buffer, kind="svg", scale=4, border=2, dark="#1a1918", light="#ffffff")
         self.send_body(HTTPStatus.OK, buffer.getvalue(), "image/svg+xml")
-
-    def send_bytes(self, token: str) -> None:
-        """The file itself, to the sender page only, one Range slice at a time."""
-        share = self.share_for(token)
-        if share is None:
-            return self.send_error_json(HTTPStatus.NOT_FOUND, "unknown link")
-        if (reason := share.check()):
-            return self.send_error_json(HTTPStatus.GONE, reason)
-        if share.path is None:
-            return self.send_error_json(HTTPStatus.CONFLICT, "the window holds this file, kit doesn't")
-        try:
-            size = share.path.stat().st_size
-        except OSError as exc:
-            return self.send_error_json(HTTPStatus.GONE, f"can't read the file any more: {exc}")
-
-        start, end = 0, size - 1
-        status = HTTPStatus.OK
-        header = self.headers.get("Range")
-        if header:
-            match = re.fullmatch(r"bytes=(\d*)-(\d*)", header.strip())
-            if not match or not (match[1] or match[2]):
-                return self.send_error_json(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE, "bad Range")
-            if match[1]:
-                start = int(match[1])
-                end = int(match[2]) if match[2] else size - 1
-            else:  # a suffix range: the last N bytes
-                start = max(0, size - int(match[2]))
-            if start >= size or start > end:
-                self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
-                self.send_header("Content-Range", f"bytes */{size}")
-                self.send_header("Content-Length", "0")
-                self.end_headers()
-                return
-            end = min(end, size - 1)
-            status = HTTPStatus.PARTIAL_CONTENT
-
-        length = end - start + 1
-        self.send_response(status)
-        self.send_header("Content-Type", mimetypes.guess_type(share.name)[0] or "application/octet-stream")
-        self.send_header("Content-Length", str(length))
-        self.send_header("Accept-Ranges", "bytes")
-        self.send_header("Cache-Control", "no-store")
-        if status == HTTPStatus.PARTIAL_CONTENT:
-            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
-        self.end_headers()
-        if self.command == "HEAD":
-            return
-        remaining = length
-        with share.path.open("rb") as handle:
-            handle.seek(start)
-            while remaining > 0:
-                block = handle.read(min(1 << 20, remaining))
-                if not block:
-                    break
-                self.wfile.write(block)
-                remaining -= len(block)
 
     def do_POST(self) -> None:
         if not self.host_ok():
@@ -645,10 +986,18 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
         if not self.authorized():
             return self.send_error_json(HTTPStatus.UNAUTHORIZED, "missing or invalid token")
 
+        url = urlparse(self.path)
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             return self.send_error_json(HTTPStatus.BAD_REQUEST, "bad Content-Length")
+        if url.path == "/api/upload":
+            try:
+                return self.send_json(HTTPStatus.OK, self.handle_upload(parse_qs(url.query), length))
+            except ApiError as exc:
+                self.close_connection = True   # the rest of the body may still be on its way
+                return self.send_error_json(exc.status, str(exc))
+
         if length > MAX_BODY:
             return self.send_error_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "request too large")
         try:
@@ -658,30 +1007,26 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             return self.send_error_json(HTTPStatus.BAD_REQUEST, "expected a JSON object")
 
-        path = urlparse(self.path).path
+        app = self.server.app
         try:
-            if path == "/api/event":
-                return self.send_json(HTTPStatus.OK, self.handle_event(body))
-            if path == "/api/window-hello":
-                return self.send_json(HTTPStatus.OK, self.handle_hello(body))
-            if path == "/api/dialog":
+            if url.path == "/api/dialog":
                 return self.send_json(HTTPStatus.OK, self.handle_dialog())
-            if path == "/api/add":
+            if url.path == "/api/add":
                 return self.send_json(HTTPStatus.OK, self.handle_add(body))
-            if path == "/api/add-window":
-                return self.send_json(HTTPStatus.OK, self.handle_add_window(body))
-            if path == "/api/options":
+            if url.path == "/api/options":
                 return self.send_json(HTTPStatus.OK, self.handle_options(body))
-            if path == "/api/remove":
+            if url.path == "/api/remove":
                 return self.send_json(HTTPStatus.OK, self.handle_remove(body))
-            if path == "/api/history/clear":
-                self.server.history.clear()
+            if url.path == "/api/mode":
+                return self.send_json(HTTPStatus.OK, self.handle_mode(body))
+            if url.path == "/api/history/clear":
+                app.history.clear()
                 return self.send_json(HTTPStatus.OK, {"entries": []})
-            if path == "/api/stop":
-                for share in self.server.shares.values():
+            if url.path == "/api/stop":
+                for share in list(app.shares.values()):
                     share.dead = share.dead or "you stopped it"
-                self.server.sweep()
-                self.server.finished.set()
+                app.sweep()
+                app.finished.set()
                 return self.send_json(HTTPStatus.OK, {"ok": True})
         except ApiError as exc:
             return self.send_error_json(exc.status, str(exc))
@@ -689,33 +1034,24 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
 
     # -- window actions
 
-    def handle_hello(self, body: dict) -> dict:
-        """The window announcing itself. A new one can't serve files an older one was holding."""
-        session = str(body.get("session", ""))[:64] or secrets.token_hex(8)
-        if self.server.window_session and session != self.server.window_session:
-            for share in self.server.shares.values():
-                if share.source == "window" and not share.dead:
-                    share.dead = "the sharing window was reloaded"
-            self.server.sweep()
-        self.server.window_session = session
-        return self.state()
-
     def handle_dialog(self) -> dict:
-        if not self.server.dialog_lock.acquire(blocking=False):
+        lock = self.server.app.dialog_lock
+        if not lock.acquire(blocking=False):
             raise ApiError("a file dialog is already open", HTTPStatus.CONFLICT)
         try:
             return {"paths": run_dialog()}
         finally:
-            self.server.dialog_lock.release()
+            lock.release()
 
     def options_from(self, body: dict) -> tuple[float, int | None]:
         try:
-            expire = parse_expire(body.get("expire") or self.server.defaults["expire"])
+            expire = parse_expire(body.get("expire") or self.server.app.defaults["expire"])
         except ValueError as exc:
             raise ApiError(str(exc)) from None
         return expire, parse_limit(body.get("once"), body.get("max"))
 
     def handle_add(self, body: dict) -> dict:
+        app = self.server.app
         paths = body.get("paths")
         if not isinstance(paths, list) or not paths:
             raise ApiError("give at least one file")
@@ -727,28 +1063,47 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
             except ApiError as exc:
                 errors.append(str(exc))
                 continue
-            share = self.server.new_share(path.name, size, path, expire, limit)
+            share = app.new_share(path.name, size, path, expire, limit)
             log(f"{style('added', 'green')}     {style(share.name, 'bold')}  {style(human_bytes(size), 'dim')}")
-            added.append({**share.state(), "link": share_link(self.server.page, self.server.peer_id, share)})
+            added.append(self.with_link(share))
         if added:
-            self.server.auto_exit = False  # someone is working in the window; don't pull it away
+            app.auto_exit = False  # someone is working in the window; don't pull it away
         return {"added": added, "errors": errors}
 
-    def handle_add_window(self, body: dict) -> dict:
-        """A file dropped onto the window: the page holds the bytes, kit only holds the link."""
-        name = os.path.basename(str(body.get("name", "")).replace("\\", "/")).strip() or "file"
-        try:
-            size = int(body.get("size", 0))
-        except (TypeError, ValueError):
-            raise ApiError("the file size has to be a number") from None
-        if size < 0 or size > MAX_WINDOW_FILE:
-            raise ApiError("that file size doesn't look right")
+    def handle_upload(self, params: dict, length: int) -> dict:
+        """A file dropped on the window. The page can't say where it lives, so it hands kit a copy."""
+        app = self.server.app
+        name = os.path.basename(params.get("name", [""])[0].replace("\\", "/")).strip() or "file"
+        if length <= 0 or length > MAX_UPLOAD:
+            raise ApiError("that file is empty or too big")
+        body = {"expire": params.get("expire", [""])[0], "once": params.get("once", [""])[0] == "1",
+                "max": params.get("max", [""])[0]}
         expire, limit = self.options_from(body)
-        share = self.server.new_share(name, size, None, expire, limit)
-        self.server.auto_exit = False
-        log(f"{style('added', 'green')}     {style(share.name, 'bold')}  {style(human_bytes(size), 'dim')}"
-            f"  {style('(held by the window)', 'dim')}")
-        return {**share.state(), "link": share_link(self.server.page, self.server.peer_id, share)}
+        if app.upload_dir is None:
+            app.upload_dir = Path(tempfile.mkdtemp(prefix="kit-send-"))
+        folder = app.upload_dir / secrets.token_hex(6)
+        folder.mkdir()
+        target = folder / name
+        remaining = length
+        try:
+            with target.open("wb") as out:
+                while remaining > 0:
+                    block = self.rfile.read(min(BLOCK, remaining))
+                    if not block:
+                        break
+                    out.write(block)
+                    remaining -= len(block)
+        except OSError as exc:
+            shutil.rmtree(folder, ignore_errors=True)
+            raise ApiError(f"couldn't copy {name}: {exc}", HTTPStatus.INSUFFICIENT_STORAGE) from None
+        if remaining:
+            shutil.rmtree(folder, ignore_errors=True)
+            raise ApiError(f"{name} didn't arrive whole")
+        share = app.new_share(name, length, target, expire, limit, copied=True)
+        app.auto_exit = False
+        log(f"{style('added', 'green')}     {style(share.name, 'bold')}  {style(human_bytes(length), 'dim')}"
+            f"  {style('(dropped on the window)', 'dim')}")
+        return self.with_link(share)
 
     def handle_options(self, body: dict) -> dict:
         share = self.live_share(str(body.get("token", "")))
@@ -757,102 +1112,56 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
         expire, limit = self.options_from(body)
         share.expires_at = time.time() + expire
         share.max_downloads = limit
-        self.server.history.record(share)
-        return {**share.state(), "link": share_link(self.server.page, self.server.peer_id, share)}
+        self.server.app.history.record(share)
+        return self.with_link(share)
 
     def handle_remove(self, body: dict) -> dict:
-        share = self.share_for(str(body.get("token", "")))
+        app = self.server.app
+        share = app.share_for(str(body.get("token", "")))
         if share is None:
             raise ApiError("unknown link", HTTPStatus.NOT_FOUND)
         share.dead = share.dead or "you removed it"
-        self.server.sweep()
-        self.server.check_finished()
+        app.sweep()
+        app.check_finished()
         return {"ok": True}
 
-    def handle_event(self, body: dict) -> dict:
-        """Progress reports from the sender page: what the terminal shows, and what enforces the limits."""
-        share = self.share_for(str(body.get("token", "")))
-        kind = str(body.get("kind", ""))
-        peer = str(body.get("peer", ""))[:40]
-        who = style(peer[:12] or "someone", "dim")
-        if share is None:
-            if kind in ("asked", "rejected"):
-                log(f"{style('rejected', 'yellow')}  {who} tried a link kit doesn't know")
-            return {"ok": False, "error": "unknown link"}
-        name = style(share.name, "bold")
+    def handle_mode(self, body: dict) -> dict:
+        app = self.server.app
+        mode = str(body.get("mode", ""))
+        if mode not in ("lan", "internet"):
+            raise ApiError("mode has to be lan or internet")
+        if mode != app.mode or app.status not in ("", "starting"):
+            app.mode, app.status = mode, "starting"   # shown straight away; set_mode does the work
 
-        if kind == "asked":
-            reason = share.check()
-            if reason:
-                log(f"{style('refused', 'yellow')}   {who} asked for {name}: {reason}")
-                return {"ok": False, "error": reason}
-            log(f"{style('connected', 'cyan')} {who} wants {name}")
-            share.active[peer] = 0
-            return {"ok": True}
-        if kind == "rejected":
-            log(f"{style('rejected', 'yellow')}  {who} sent the wrong link token for {name}")
-            return {"ok": True}
-        if kind == "progress":
-            share.active[peer] = int(body.get("bytes", 0))
-            return {"ok": True}
-        if kind == "done":
-            sent = int(body.get("bytes", 0))
-            seconds = float(body.get("seconds", 0)) or 0.001
-            share.active.pop(peer, None)
-            if body.get("verified") is False:
-                log(f"{style('MISMATCH', 'bold', 'red')}  {name} arrived corrupted at {who} - nothing was saved")
-            else:
-                share.downloads += 1
-                rate = human_bytes(sent / seconds)
-                log(f"{style('sent', 'bold', 'green')}      {name} to {who}  "
-                    f"{human_bytes(sent)} in {human_time(seconds)} ({rate}/s)")
-            self.server.history.record(share)
-            self.server.check_finished()
-            return {"ok": True}
-        if kind == "failed":
-            share.active.pop(peer, None)
-            log(f"{style('failed', 'red')}    {name} to {who}: {body.get('message', 'unknown error')}")
-            return {"ok": True}
-        return {"ok": False, "error": "unknown event"}
+            def switch() -> None:
+                try:
+                    app.set_mode(mode)
+                    log(f"{style('links', 'cyan')}     now reach {app.describe_mode()}")
+                except SetupError as exc:
+                    log(style(f"couldn't switch: {exc}", "red"))
+            threading.Thread(target=switch, daemon=True).start()
+        return self.state()
 
 
 # --- start ---------------------------------------------------------------------------
 
-def start_server(host: str, port: int, explicit: bool, token: str, peer_id: str, shares: dict[str, Share],
-                 history: History, defaults: dict, auto_exit: bool) -> SendServer:
-    candidates = [port] if explicit else range(port, port + PORT_ATTEMPTS)
-    last_error: OSError | None = None
-    for candidate in candidates:
-        try:
-            return SendServer(host, candidate, token, peer_id, shares, history, defaults, auto_exit)
-        except OSError as exc:
-            last_error = exc
-    if explicit:
-        die(f"can't listen on port {port}: {last_error}")
-    die(f"no free port between {port} and {port + PORT_ATTEMPTS - 1}")
-
-
-def lan_address() -> str | None:
-    import socket
-
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.connect(("10.255.255.255", 1))  # sends nothing; picks the outgoing interface
-            return sock.getsockname()[0]
-    except OSError:
-        return None
-
-
-def share_link(page: str, peer_id: str, share: Share) -> str:
-    """Everything the recipient needs, after the # so it never reaches a web server."""
-    return (f"{page}#i={peer_id}&t={share.token}"
-            f"&n={quote(share.name, safe='')}&s={share.size}")
+def print_links(app: App, show_qr: bool) -> None:
+    for share in list(app.shares.values()):
+        link = app.link(share)
+        print(f"\n  {style(share.name, 'bold')}  {style(human_bytes(share.size), 'dim')}")
+        print(f"  {style(link, 'bold')}")
+        if show_qr:
+            for line in qr_lines(link):
+                print("  " + line)
+    if app.shares:
+        print(style("\n  a browser gets a Download button; from a terminal: curl -OJ LINK  or  wget --content-disposition LINK",
+                    "dim"))
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="kit send",
-        description="Send a file straight to someone's browser, peer to peer.",
+        description="Send files to someone's browser with a link, over your network or the internet.",
     )
     parser.add_argument("files", nargs="*", help="the file(s) to share; each one gets its own link. "
                                                  "Leave it out to add them in the window instead")
@@ -860,23 +1169,39 @@ def main() -> int:
                         help="stop the link after one completed download (setting: send.once)")
     parser.add_argument("--max", type=int, metavar="N", help="stop the link after N completed downloads")
     parser.add_argument("--expire", metavar="TIME", help="how long the link works: 2h, 90m, 30s (setting: send.expire)")
-    parser.add_argument("--page", metavar="URL",
-                        help="receiver page the link points at (setting: send.page; empty: this computer's own copy)")
-    parser.add_argument("--lan", action="store_true", help="also let other devices on this network load the receiver page")
-    parser.add_argument("--port", type=int, help=f"port to listen on (setting: send.port, default {DEFAULT_PORT})")
+    where = parser.add_mutually_exclusive_group()
+    where.add_argument("--lan", dest="mode", action="store_const", const="lan",
+                       help="links work for devices on this network (setting: send.mode)")
+    where.add_argument("--internet", dest="mode", action="store_const", const="internet",
+                       help="links work from anywhere, through a free Cloudflare tunnel")
+    where.add_argument("--public", action="store_true",
+                       help="links work from anywhere, through this machine's own public address "
+                            "(the port has to be open to the internet)")
+    parser.add_argument("--address", metavar="HOST", default="",
+                        help="with --public: the name or address to put in links (default: looked up)")
+    parser.add_argument("--port", type=int, help=f"port the links use on the LAN or with --public "
+                                                 f"(setting: send.port, default {DEFAULT_PORT})")
+    parser.add_argument("--headless", action="store_true",
+                        help="no window, just the terminal (automatic over SSH or without a display)")
     parser.add_argument("--no-open", dest="open", action="store_false", help="don't open the sharing window")
-    parser.add_argument("--open", dest="open", action="store_true", help="open the sharing window")
-    parser.add_argument("--no-qr", dest="qr", action="store_false", help="don't print a QR code of the link")
+    parser.add_argument("--open", dest="open", action="store_true",
+                        help="open the sharing window, even where kit would pick the terminal")
+    parser.add_argument("--no-qr", dest="qr", action="store_false", help="don't print QR codes of the links")
     parser.add_argument("--window", dest="window", action="store_true", help="open in an app window (setting: send.window)")
     parser.add_argument("--no-window", dest="window", action="store_false", help="open in a normal browser tab")
     conf = tool_settings()
-    parser.set_defaults(open=True, qr=True,
+    parser.set_defaults(open=None, qr=True, mode=None,
                         window=conf.get("window", True),
                         once=conf.get("once", False))
     args = parser.parse_args()
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")   # a file name the console can't show mustn't crash kit
 
     if args.max is not None and args.max < 1:
         die("--max must be at least 1")
+    if args.address and not args.public:
+        die("--address goes with --public")
     expire_text = args.expire or conf.get("expire", "2h")
     try:
         expire_seconds = parse_expire(expire_text)
@@ -884,76 +1209,85 @@ def main() -> int:
     except (ValueError, ApiError) as exc:
         die(str(exc))
 
-    shares: dict[str, Share] = {}
-    history = History(data_path())
-    defaults = {"expire": expire_text, "once": bool(args.once), "max": args.max}
-    token = secrets.token_urlsafe(24)
-    peer_id = "kit" + secrets.token_hex(12)  # the matchmaker's name for this window
-    host = "0.0.0.0" if args.lan else "127.0.0.1"
-    server = start_server(host, args.port or conf.get("port", DEFAULT_PORT), args.port is not None,
-                          token, peer_id, shares, history, defaults, auto_exit=bool(args.files))
-    port = server.server_address[1]
-    address = lan_address() if args.lan else None
-    if address:
-        server.allow_host(f"{address}:{port}")
+    headless = args.headless or (args.open is None and no_display())
+    if headless and not args.files:
+        die("there's no window here" + ("" if args.headless else " (this looks like an SSH session, or no display)")
+            + ", so name the files to share: kit send FILE [FILE...]")
 
-    page = (args.page if args.page is not None else conf.get("page", "")).strip().rstrip("/")
-    if not page:
-        base = address or "127.0.0.1"
-        page = f"http://{base}:{port}/r"
-    local_only = urlparse(page).hostname in ("127.0.0.1", "localhost")
-    server.page = page
+    mode = "internet" if args.public else (args.mode or conf.get("mode", "lan"))
+    app = App(History(data_dir() / "send-history.json"),
+              {"expire": expire_text, "once": bool(args.once), "max": args.max},
+              auto_exit=bool(args.files), port=args.port or conf.get("port", DEFAULT_PORT),
+              explicit_port=args.port is not None, internet_kind="public" if args.public else "tunnel",
+              address=args.address, cloudflared=conf.get("cloudflared", ""))
 
     try:
         for name in args.files:
             path, size = readable_file(name)
-            server.new_share(path.name, size, path, expire_seconds, limit)
+            app.new_share(path.name, size, path, expire_seconds, limit)
     except ApiError as exc:
         die(str(exc))
 
-    if shares:
-        many = len(shares) != 1
-        print(f"{style('kit send', 'bold', 'cyan')}  {len(shares)} file{'s' if many else ''}, "
-              f"{'links last' if many else 'link lasts'} {human_time(expire_seconds)}"
-              f"{', one download each' if limit == 1 else f', {limit} downloads each' if limit else ''}")
-        for share in shares.values():
-            link = share_link(page, peer_id, share)
-            print(f"\n  {style(share.name, 'bold')}  {style(human_bytes(share.size), 'dim')}")
-            print(f"  {style(link, 'bold')}")
-            if args.qr and not local_only:
-                for line in qr_lines(link):
-                    print("  " + line)
-    else:
-        print(f"{style('kit send', 'bold', 'cyan')}  no files yet - add them in the sharing window")
+    control = None
+    if not headless:
+        control = ControlServer(app, secrets.token_urlsafe(24))
+        threading.Thread(target=control.serve_forever, daemon=True).start()
+        ui = f"http://127.0.0.1:{control.server_address[1]}/?token={control.token}"
+        # First URL printed: `kit share` takes it as the tool's address.
+        print(f"{style('kit send', 'bold', 'cyan')}  window: {ui}", flush=True)
+        if args.open is not False:
+            opened = True
+            if args.window:
+                open_app_window(ui)
+            else:
+                opened = webbrowser.open(ui)
+            if not opened:
+                print(style("  couldn't open a browser - open the address above yourself", "yellow"))
 
-    if local_only:
-        print(style("\n  links only work on this computer: publish the receiver page and point at it with", "yellow"))
-        print(style("  --page https://you.github.io/.../send/  (or: kit config set send.page ...)", "yellow"))
-        if args.lan and address:
-            print(style(f"  devices on this network can use http://{address}:{port}/r", "dim"))
-    print(style("\n  the sharing window must stay open - Ctrl+C here stops sharing", "dim"))
-
-    ui = f"http://127.0.0.1:{port}/?token={token}"
-    print(style(f"  window: {ui}", "dim"), flush=True)
-    if args.open:
-        if args.window:
-            open_app_window(ui)
-        else:
-            webbrowser.open(ui)
-
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
     try:
-        while not server.finished.wait(0.5):
-            server.sweep()
-            if server.auto_exit and shares and all(share.check() for share in shares.values()):
-                break
-        time.sleep(0.3)  # let the window's last report arrive
+        try:
+            app.set_mode(mode)
+        except SetupError as exc:
+            if headless or args.files:
+                die(str(exc))
+            log(style(f"links can't reach {mode} yet: {exc} - try again from the window", "red"))
+
+        if headless:
+            print(f"{style('kit send', 'bold', 'cyan')}  links reach {app.describe_mode()}")
+        if app.shares and app.base:
+            many = len(app.shares) != 1
+            print(f"{style('kit send', 'bold', 'cyan')}  {len(app.shares)} file{'s' if many else ''}, "
+                  f"{'links last' if many else 'link lasts'} {human_time(expire_seconds)}"
+                  f"{', one download each' if limit == 1 else f', {limit} downloads each' if limit else ''}")
+            print_links(app, args.qr)
+        elif not app.shares:
+            print("  no files yet - add them in the sharing window")
+        if app.internet_kind == "public" and app.mode == "internet":
+            port = app.base.rsplit(":", 1)[-1]
+            print(style(f"\n  --public: port {port} has to be open in this machine's firewall "
+                        "(and forwarded by the router, if there is one)", "yellow"))
+        print(style("\n  kit has to keep running while people download - Ctrl+C here stops sharing"
+                    + ("" if headless else ", and so does Stop in the window"), "dim"), flush=True)
+
+        last_line = time.time()
+        while not app.finished.wait(0.5):
+            app.check_finished()
+            line = app.progress_line()
+            if console.tty:
+                console.show(line)
+            elif line and time.time() - last_line >= PROGRESS_EVERY:
+                last_line = time.time()
+                log(line.strip())
+        console.show("")
+        time.sleep(0.3)  # let the last response finish writing
     except KeyboardInterrupt:
+        console.show("")
         print("\nstopped sharing")
     finally:
-        server.shutdown()
-        server.server_close()
+        app.close()
+        if control:
+            control.shutdown()
+            control.server_close()
     return 0
 
 

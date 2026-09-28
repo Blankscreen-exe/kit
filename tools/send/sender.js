@@ -1,32 +1,12 @@
-// The sending half of kit send. This page holds the peer connection and streams the file out of kit's
-// local server, because browsers do WebRTC far better than anything we could add to Python.
-//
-// It is also the control panel: files are added here (through kit's own file dialog, the built-in
-// browser, or a drop), and each link's expiry and download limit are set here.
-//
-// Numbers below come from measurement, not taste (see the tool's README):
-//   - the file is read in ranged slices, never one fetch: a single fetch of a 1 GB file cost 1.6 GB of RSS
-//   - 64 KB data-channel chunks, pause above 4 MB buffered, resume at 1 MB
-//   - bufferedamountlow only fires when crossing the threshold, so draining polls as well as listens
-const CHUNK = 65536;
-const LOW = 1 << 20;
-const HIGH = 4 << 20;
-const HASH_BATCH = 64;        // chunks hashed before waiting, so the hash queue can't grow without bound
-const STALL_MS = 30000;       // no progress for this long: give up on that transfer
-const ICE = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun.cloudflare.com:3478" }];
+// The sharing window of kit send: the control panel. kit itself serves the files, so this window only
+// adds files (through kit's own file dialog, the built-in browser, or a drop), sets each link's
+// expiry and download limit, switches between LAN and internet links, and shows progress.
 
 const EXPIRIES = [["30m", "30 minutes"], ["2h", "2 hours"], ["8h", "8 hours"], ["24h", "24 hours"]];
 const LIMITS = [["0", "No limit"], ["1", "Once"], ["2", "2"], ["3", "3"], ["5", "5"], ["10", "10"]];
 
 const $ = (id) => document.getElementById(id);
-// A fresh id every load: kit uses it to drop files an older window was holding.
-const SESSION = Math.random().toString(36).slice(2) + Date.now().toString(36);
-
-const state = {
-  peer: null, slice: 8 << 20, shares: new Map(), transfers: new Map(),
-  files: new Map(),       // token -> the File a drop handed us (kit never sees these bytes)
-  dialog: false, browsePath: "",
-};
+const state = { shares: new Map(), dialog: false, browsePath: "", mode: "", status: "" };
 window.state = state;   // handy in devtools, and what the test harness watches
 
 const humanBytes = (n) => {
@@ -42,8 +22,6 @@ const humanTime = (seconds) => {
   return Math.max(0, Math.round(seconds)) + "s";
 };
 
-const hex = (buffer) => [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
-
 async function api(path, options) {
   const response = await fetch(path, { credentials: "same-origin", ...options });
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || response.statusText);
@@ -55,9 +33,6 @@ const post = (path, body) => api(path, {
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body || {}),
 });
-
-const report = (body) => post("/api/event", body).catch(() => ({ ok: true }));
-//        ^ kit going away must not break a transfer in flight
 
 function showError(id, text) {
   const box = $(id);
@@ -113,21 +88,46 @@ async function chooseFiles() {
   }
 }
 
+// A page is never told where a dropped file lives, so it hands kit a copy (over loopback, so it's quick).
+function upload(file, onProgress) {
+  const options = newOptions();
+  const query = new URLSearchParams({
+    name: file.name, expire: options.expire, once: options.once ? "1" : "", max: options.max || "",
+  });
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", "/api/upload?" + query);
+    request.upload.onprogress = (event) => { if (event.lengthComputable) onProgress(event.loaded / event.total); };
+    request.onload = () => {
+      let body = {};
+      try { body = JSON.parse(request.responseText); } catch {}
+      request.status === 200 ? resolve(body) : reject(new Error(body.error || request.statusText));
+    };
+    request.onerror = () => reject(new Error("kit isn't answering"));
+    request.send(file);
+  });
+}
+
 async function addDropped(files) {
   const problems = [];
+  const hint = $("add-hint");
+  const before = hint.textContent;
   for (const file of files) {
     if (!file.size) {                     // folders arrive like this too, and have nothing to send
       problems.push(`${file.name} is empty, or is a folder - use Browse for folders`);
       continue;
     }
     try {
-      const share = await post("/api/add-window", { name: file.name, size: file.size, ...newOptions() });
-      state.files.set(share.token, file);
+      const share = await upload(file, (fraction) => {
+        hint.textContent = `copying ${file.name} to kit… ${(fraction * 100).toFixed(0)}%`;
+      });
       state.shares.set(share.token, share);
+      render();
     } catch (error) {
       problems.push(`${file.name}: ${error.message || error}`);
     }
   }
+  hint.textContent = before;
   showError("add-error", problems.join(" · "));
   render();
 }
@@ -237,7 +237,6 @@ function buildCard(share) {
   card.innerHTML = `
     <div class="row">
       <span class="name"></span><span class="size"></span>
-      <span class="badge held" hidden>held by this window</span>
       <span class="spacer"></span>
       <span class="status waiting"><span class="dot"></span><span class="label"></span></span>
     </div>
@@ -257,7 +256,7 @@ function buildCard(share) {
   card.querySelector(".name").textContent = share.name;
   card.querySelector(".size").textContent = humanBytes(share.size);
   const input = card.querySelector(".link");
-  input.value = share.link;
+  input.value = share.link || "";
 
   card.querySelector(".copy").addEventListener("click", async () => {
     try {
@@ -275,7 +274,9 @@ function buildCard(share) {
   card.querySelector(".qr-toggle").addEventListener("click", () => {
     qr.hidden = !qr.hidden;
     const image = qr.querySelector("img");
-    if (!qr.hidden && !image.src) image.src = "/api/qr?token=" + encodeURIComponent(share.token);
+    if (!qr.hidden && !image.getAttribute("src")) {
+      image.src = "/api/qr?token=" + encodeURIComponent(share.token) + "&v=" + encodeURIComponent(image.dataset.link || "");
+    }
   });
 
   const expire = card.querySelector(".expire");
@@ -294,9 +295,6 @@ function buildCard(share) {
   max.addEventListener("change", change);
 
   card.querySelector(".remove").addEventListener("click", async () => {
-    for (const transfer of state.transfers.values()) {
-      if (transfer.token === share.token) transfer.cancelled = "you removed this link";
-    }
     await post("/api/remove", { token: share.token }).catch(() => {});
     await refresh().catch(() => {});
     if (historyOpen()) loadHistory();
@@ -317,249 +315,99 @@ function render() {
     }
     const status = card.querySelector(".status");
     const label = card.querySelector(".label");
-    const live = [...state.transfers.values()].filter((t) => t.token === share.token);
+    const live = share.active || [];
     status.className = "status " + (share.dead ? "dead" : live.length ? "live" : share.downloads ? "done" : "waiting");
     label.textContent = share.dead
       ? share.dead
       : live.length ? `sending to ${live.length}`
       : share.downloads ? `sent ${share.downloads}× · ${humanTime(share.expires_in)} left`
       : `waiting · ${humanTime(share.expires_in)} left`;
-    card.querySelector(".link").value = share.link;
-    card.querySelector(".held").hidden = share.source !== "window";
-    card.querySelector(".copy").disabled = !!share.dead;
-    card.querySelector(".qr-toggle").disabled = !!share.dead;
+    const ready = !!share.link && !share.dead;
+    card.querySelector(".link").value = share.link
+      || (state.status === "starting" ? "getting a link…" : "no link - " + (state.status || "stopped"));
+    card.querySelector(".copy").disabled = !ready;
+    card.querySelector(".qr-toggle").disabled = !ready;
     card.querySelector(".remove").disabled = !!share.dead;
+    showTransfers(card, share);
     const expire = card.querySelector(".expire");
     const max = card.querySelector(".max");
     expire.disabled = max.disabled = !!share.locked;
     if (max.value !== limitValue(share) && !max.matches(":focus")) max.value = limitValue(share);
-    if (share.dead) {
-      const qr = card.querySelector(".qr");
+    const qr = card.querySelector(".qr");
+    const image = qr.querySelector("img");
+    if (!ready) qr.hidden = true;
+    if ((image.dataset.link || "") !== (share.link || "")) {   // a new mode means a new link, and a new code
+      image.dataset.link = share.link || "";
+      image.removeAttribute("src");
       qr.hidden = true;
     }
   }
   $("empty").hidden = state.shares.size > 0;
 }
 
-function transferRow(transfer) {
-  const card = document.getElementById("s-" + transfer.token);
-  if (!card) return null;
-  let row = document.getElementById("t-" + transfer.id);
-  if (!row) {
-    row = document.createElement("div");
-    row.className = "transfer";
-    row.id = "t-" + transfer.id;
-    row.innerHTML = `<div class="row"><span class="who"></span><span class="spacer"></span><span class="meta pace"></span></div><div class="bar"><i></i></div>`;
-    row.querySelector(".who").textContent = "sending to " + transfer.peer.slice(0, 12);
-    card.querySelector(".transfers").appendChild(row);
-  }
-  return row;
-}
-
-function showProgress(transfer) {
-  const row = transferRow(transfer);
-  if (!row) return;
-  const share = state.shares.get(transfer.token);
-  const fraction = share.size ? transfer.sent / share.size : 0;
-  row.querySelector("i").style.width = (fraction * 100).toFixed(1) + "%";
-  const seconds = (performance.now() - transfer.started) / 1000;
-  row.querySelector(".pace").textContent =
-    `${humanBytes(transfer.sent)} of ${humanBytes(share.size)} · ${humanBytes(transfer.sent / Math.max(seconds, 0.1))}/s`;
-}
-
-function finishRow(transfer, text, good) {
-  const row = transferRow(transfer);
-  if (!row) return;
-  row.querySelector(".pace").textContent = text;
-  row.querySelector(".pace").style.color = good ? "var(--good)" : "var(--bad)";
-  if (good) row.querySelector("i").style.width = "100%";
-}
-
-// --- sending ------------------------------------------------------------------------
-
-// Resolves once the channel has drained to `limit`. bufferedamountlow only fires on crossing the
-// threshold, so waiting for 0 at the end of a file hangs unless we poll too.
-function drain(channel, limit, transfer) {
-  if (channel.bufferedAmount <= limit) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    let last = channel.bufferedAmount;
-    let lastMoved = performance.now();
-    const finish = (error) => {
-      channel.removeEventListener("bufferedamountlow", check);
-      clearInterval(timer);
-      error ? reject(error) : resolve();
-    };
-    const check = () => {
-      if (transfer.cancelled) return finish(new Error(transfer.cancelled));
-      if (channel.bufferedAmount <= limit) return finish();
-      if (channel.bufferedAmount < last) { last = channel.bufferedAmount; lastMoved = performance.now(); }
-      if (performance.now() - lastMoved > STALL_MS) finish(new Error("the transfer stalled"));
-    };
-    channel.addEventListener("bufferedamountlow", check);
-    const timer = setInterval(check, 100);
-  });
-}
-
-// One slice of the file: from kit for a file it holds, straight from the File for a dropped one.
-async function readSlice(share, offset, end) {
-  if (share.source === "window") {
-    const file = state.files.get(share.token);
-    if (!file) throw new Error("this window doesn't hold that file any more - drop it in again");
-    return new Uint8Array(await file.slice(offset, end + 1).arrayBuffer());
-  }
-  const response = await fetch("/api/bytes?token=" + encodeURIComponent(share.token),
-    { credentials: "same-origin", headers: { Range: `bytes=${offset}-${end}` } });
-  if (!response.ok) throw new Error("kit couldn't read the file (" + response.status + ")");
-  return new Uint8Array(await response.arrayBuffer());
-}
-
-async function sendFile(conn, share, transfer) {
-  const channel = conn.dataChannel;
-  channel.bufferedAmountLowThreshold = LOW;
-  conn.send(JSON.stringify({
-    kind: "header", name: share.name, size: share.size, chunk: CHUNK,
-    chunks: Math.ceil(share.size / CHUNK),
-  }));
-
-  const digests = [];
-  let pending = Promise.resolve();
-  let sinceReport = 0;
-
-  for (let offset = 0; offset < share.size; offset += state.slice) {
-    if (transfer.cancelled) throw new Error(transfer.cancelled);
-    const end = Math.min(offset + state.slice, share.size) - 1;
-    const slice = await readSlice(share, offset, end);
-    if (slice.byteLength !== end - offset + 1) throw new Error("the file gave back a short read");
-
-    for (let at = 0; at < slice.length; at += CHUNK) {
-      if (transfer.cancelled) throw new Error(transfer.cancelled);
-      const piece = slice.subarray(at, Math.min(at + CHUNK, slice.length));
-      const copy = piece.slice();
-      pending = pending.then(async () => {
-        digests.push(new Uint8Array(await crypto.subtle.digest("SHA-256", copy)));
-      });
-      if (digests.length % HASH_BATCH === 0) await pending;   // keep the hash queue bounded
-      if (channel.bufferedAmount > HIGH) await drain(channel, LOW, transfer);
-      conn.send(copy.buffer);
-      transfer.sent += piece.byteLength;
-      sinceReport += piece.byteLength;
-      if (sinceReport >= 4 << 20) {
-        sinceReport = 0;
-        showProgress(transfer);
-        report({ kind: "progress", token: share.token, peer: transfer.peer, bytes: transfer.sent });
-      }
+// One row per download in progress, as kit reports them.
+function showTransfers(card, share) {
+  const box = card.querySelector(".transfers");
+  const seen = new Set();
+  for (const transfer of share.active || []) {
+    const id = "t-" + share.token + "-" + transfer.id;
+    seen.add(id);
+    let row = document.getElementById(id);
+    if (!row) {
+      row = document.createElement("div");
+      row.className = "transfer";
+      row.id = id;
+      row.innerHTML = `<div class="row"><span class="who"></span><span class="spacer"></span><span class="meta pace"></span></div><div class="bar"><i></i></div>`;
+      row.querySelector(".who").textContent = "sending to " + transfer.who;
+      box.appendChild(row);
     }
+    const fraction = transfer.size ? transfer.done / transfer.size : 1;
+    row.querySelector("i").style.width = (fraction * 100).toFixed(1) + "%";
+    row.querySelector(".pace").textContent =
+      `${humanBytes(transfer.done)} of ${humanBytes(transfer.size)} · ${humanBytes(transfer.rate)}/s`;
   }
-
-  await drain(channel, 0, transfer);    // queued is not the same as delivered
-  await pending;
-  const all = new Uint8Array(digests.length * 32);
-  digests.forEach((digest, index) => all.set(digest, index * 32));
-  const root = hex(await crypto.subtle.digest("SHA-256", all));
-  conn.send(JSON.stringify({ kind: "done", bytes: transfer.sent, root }));
-  showProgress(transfer);
-}
-
-function handleConnection(conn) {
-  const transfer = {
-    id: Math.random().toString(36).slice(2), peer: conn.peer, token: null,
-    sent: 0, started: performance.now(), cancelled: "", verdict: null,
-  };
-  let closed = false;
-
-  const stop = (reason) => {
-    if (!transfer.cancelled) transfer.cancelled = reason;
-  };
-
-  conn.on("close", () => {
-    closed = true;
-    stop("the recipient closed the page");
-    state.transfers.delete(transfer.id);
-    render();
-  });
-  conn.on("error", () => stop("the connection broke"));
-
-  conn.on("data", async (data) => {
-    if (typeof data !== "string") return;
-    let message;
-    try { message = JSON.parse(data); } catch { return; }
-
-    if (message.kind === "hello") {
-      let share;
-      try {
-        share = await api("/api/share?token=" + encodeURIComponent(message.token || ""));
-      } catch (error) {
-        report({ kind: "rejected", token: message.token || "", peer: transfer.peer });
-        conn.send(JSON.stringify({ kind: "denied", reason: String(error.message || error) }));
-        setTimeout(() => conn.close(), 200);
-        return;
-      }
-      transfer.token = share.token;
-      const answer = await report({ kind: "asked", token: share.token, peer: transfer.peer });
-      if (answer && answer.ok === false) {
-        conn.send(JSON.stringify({ kind: "denied", reason: answer.error || "this link is closed" }));
-        setTimeout(() => conn.close(), 200);
-        return;
-      }
-      // A reload means the same recipient asks again: drop the previous attempt rather than
-      // writing into a channel nobody is reading.
-      for (const [id, other] of state.transfers) {
-        if (other.peer === transfer.peer && id !== transfer.id) other.cancelled = "the recipient reloaded";
-      }
-      state.transfers.set(transfer.id, transfer);
-      render();
-      const local = state.shares.get(share.token);
-      local.downloads = share.downloads;
-      try {
-        await sendFile(conn, local, transfer);
-      } catch (error) {
-        state.transfers.delete(transfer.id);
-        finishRow(transfer, String(error.message || error), false);
-        render();
-        if (!closed) conn.send(JSON.stringify({ kind: "aborted", reason: String(error.message || error) }));
-        report({ kind: "failed", token: share.token, peer: transfer.peer, message: String(error.message || error) });
-      }
-      return;
-    }
-
-    if (message.kind === "report") {
-      const seconds = (performance.now() - transfer.started) / 1000;
-      state.transfers.delete(transfer.id);
-      finishRow(transfer, message.ok ? `sent in ${seconds.toFixed(1)}s` : "the file arrived corrupted", !!message.ok);
-      // Tell kit first, then refresh: otherwise the card still shows the count from before this send.
-      await report({
-        kind: "done", token: transfer.token, peer: transfer.peer,
-        bytes: transfer.sent, seconds, verified: !!message.ok,
-      });
-      await refresh().catch(() => {});
-      if (historyOpen()) loadHistory();
-      render();
-    }
-  });
+  for (const row of [...box.children]) if (!seen.has(row.id)) row.remove();
 }
 
 // --- start --------------------------------------------------------------------------
 
 function applyState(data) {
-  state.slice = data.slice || state.slice;
   state.dialog = !!data.dialog;
+  state.mode = data.mode;
+  state.status = data.status;
   for (const share of data.shares) {
     const existing = state.shares.get(share.token);
     state.shares.set(share.token, { ...(existing || {}), ...share });
   }
   const live = data.shares.filter((share) => !share.dead).length;
   $("head").textContent = live
-    ? `${live} link${live === 1 ? "" : "s"} live · this window does the sending`
-    : data.shares.length ? "every link is closed - add another file, or close this window"
+    ? `${live} link${live === 1 ? "" : "s"} live · kit does the sending`
+    : data.shares.length ? "every link is closed - add another file, or stop sharing"
     : "add a file to get a link";
+  for (const button of document.querySelectorAll("[data-mode]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.mode === data.mode));
+  }
+  const reach = $("reach");
+  reach.className = "meta" + (data.status && data.status !== "starting" ? " bad" : "");
+  reach.textContent = data.status === "starting"
+    ? (data.mode === "internet" ? "opening an internet link… this takes a few seconds" : "starting…")
+    : data.status ? data.status
+    : "links reach " + data.reach;
   render();
   return data;
 }
 
 const refresh = async () => applyState(await api("/api/state"));
 
+// Quick while something is moving, slow when nothing is.
+async function poll() {
+  await refresh().catch(() => {});
+  const busy = state.status === "starting" || [...state.shares.values()].some((s) => (s.active || []).length);
+  setTimeout(poll, busy ? 1000 : 4000);
+}
+
 async function main() {
-  const data = applyState(await post("/api/window-hello", { session: SESSION }));
+  const data = await refresh();
   fillSelect($("def-expire"), EXPIRIES, data.defaults.expire || "2h");
   fillSelect($("def-max"), LIMITS, data.defaults.once ? "1" : String(data.defaults.max || 0));
   $("choose").disabled = !data.dialog;
@@ -567,16 +415,8 @@ async function main() {
     $("add-hint").textContent =
       "This system has no file dialog kit can open - use Browse, or drop files onto this window.";
   }
-  $("peer").textContent = "id " + data.peer;
-
-  const peer = new Peer(data.peer, { debug: 1, config: { iceServers: ICE } });
-  state.peer = peer;
-  peer.on("open", () => { $("head").textContent = $("head").textContent.replace("starting…", ""); });
-  peer.on("error", (error) => {
-    $("head").textContent = "matchmaker problem: " + error.type + " - try restarting kit send";
-  });
-  peer.on("connection", handleConnection);
-  setInterval(() => { refresh().catch(() => {}); }, 5000);
+  if (data.kind === "public") $("mode-internet").textContent = "Internet (public address)";
+  setTimeout(poll, 1000);
 }
 
 // --- window wiring -------------------------------------------------------------------
@@ -632,9 +472,19 @@ window.addEventListener("drop", async (event) => {
   await addDropped([...event.dataTransfer.files]);
 });
 
+for (const button of document.querySelectorAll("[data-mode]")) {
+  button.addEventListener("click", async () => {
+    if (button.getAttribute("aria-pressed") === "true" && !state.status) return;
+    try {
+      applyState(await post("/api/mode", { mode: button.dataset.mode }));
+    } catch (error) {
+      showError("add-error", String(error.message || error));
+    }
+  });
+}
+
 $("stop").addEventListener("click", async () => {
   $("stop").disabled = true;
-  for (const transfer of state.transfers.values()) transfer.cancelled = "you stopped sharing";
   await post("/api/stop", {}).catch(() => {});
   await refresh().catch(() => {});
 });

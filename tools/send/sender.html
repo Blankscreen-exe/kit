@@ -89,6 +89,11 @@ footer { color: var(--dim); font-size: 12px; margin-top: 16px; }
 }
 .dropzone.on { display: grid; }
 .dropzone span { border: 2px dashed var(--accent); border-radius: 14px; padding: 18px 26px; background: var(--panel); }
+.switch { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.switch button { border: 0; border-radius: 0; background: none; color: var(--muted); }
+.switch button + button { border-left: 1px solid var(--line); }
+.switch button[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text); font-weight: 600; }
+.meta.bad { color: var(--bad); }
 .hist { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid #262422; font-size: 13px; }
 .hist:last-child { border-bottom: 0; }
 .hist .when { color: var(--dim); font-size: 12px; white-space: nowrap; }
@@ -97,6 +102,16 @@ footer { color: var(--dim); font-size: 12px; margin-top: 16px; }
 <body>
 <h1><span class="mark">✻</span> kit send</h1>
 <div class="sub" id="head">starting…</div>
+
+<div class="card">
+  <div class="row">
+    <div class="switch" role="group" aria-label="Who the links work for">
+      <button data-mode="lan" aria-pressed="false">This network</button>
+      <button data-mode="internet" id="mode-internet" aria-pressed="false">Internet</button>
+    </div>
+    <span class="meta" id="reach"></span>
+  </div>
+</div>
 
 <div class="card">
   <div class="row">
@@ -134,8 +149,6 @@ footer { color: var(--dim); font-size: 12px; margin-top: 16px; }
 <div class="row">
   <button id="stop">Stop sharing</button>
   <button id="history-toggle" class="link-ish">History</button>
-  <span class="spacer"></span>
-  <span class="meta" id="peer"></span>
 </div>
 
 <div class="card" id="history" hidden style="margin-top:12px">
@@ -147,9 +160,8 @@ footer { color: var(--dim); font-size: 12px; margin-top: 16px; }
   <div id="history-list"></div>
 </div>
 
-<footer>Keep this window open while sending. Closing it ends every transfer.</footer>
+<footer>kit does the sending, so this window can be closed. Links work until they expire, or until you stop sharing (or press Ctrl+C in the terminal).</footer>
 <div class="dropzone" id="dropzone"><span>Drop to share</span></div>
-<script src="./peerjs.min.js"></script>
 <script src="./sender.js"></script>
 </body>
 </html>
