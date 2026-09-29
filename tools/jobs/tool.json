@@ -1,0 +1,8 @@
+{
+  "category": "productivity",
+  "aliases": ["jt"],
+  "web": true,
+  "settings": {
+    "project": {"type": "string", "default": "", "env": "JOB_TRACKER_PROJECT", "help": "Folder of a job-application-tracker checkout, used when the 'jobs' command is not on PATH"}
+  }
+}
