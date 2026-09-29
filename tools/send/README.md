@@ -7,7 +7,7 @@ Send a file straight to someone's browser, peer to peer, with a link they just c
 ```
 kit send                                     # open the sharing window and add files there
 kit send <file> [<file>...] [--once | --max N] [--expire 2h] [--page URL]
-kit send <file> [--lan] [--port N] [--no-open] [--no-qr] [--no-window]
+kit send <file> [--local] [--port N] [--no-open] [--no-qr] [--no-window]
 ```
 
 `kit send` opens a small **sharing window** and everything happens there: add files, copy links, show a
@@ -39,8 +39,8 @@ first download, after which they're fixed and shown as facts.
 ### Making links that work outside your own computer
 
 The recipient's page has to be somewhere they can reach. Out of the box kit serves it from your own
-machine, so those links only work **on this computer** - enough to try it out. For real sending,
-publish the receiver page once and point kit at it:
+machine to your **network**, so a phone or another computer on the same Wi-Fi can open the link. To
+send to anyone, anywhere, publish the receiver page once and point kit at it:
 
 ```
 kit config set send.page https://you.github.io/kit/send/
@@ -50,8 +50,12 @@ The page is static (`receiver.html`, `receiver.js`, `sw.js`, `peerjs.min.js` in 
 published anywhere - GitHub Pages is free. It never learns anything about your transfers: the peer id
 and the link's token live after the `#`, which browsers never send to a web server.
 
-`--lan` also serves the page to your own network, so another computer or a phone on the same Wi-Fi can
-open it. A plain network address isn't a "secure context", which costs two things on that page:
+Once a page is set, kit stops serving to the network: the recipient loads the page from where you
+published it, and only the sharing window talks to kit. `--lan` serves to the network anyway, and
+`--local` serves only to this computer (links then work nowhere else - just for trying it out). The
+sharing window itself is always on `127.0.0.1`, and needs a token only it has.
+
+Links to kit's own copy on your network have limits. A plain network address isn't a "secure context", which costs two things on that page:
 browsers hold the file in memory instead of streaming it to disk, so keep to files under about 300 MB,
 and they withhold the hashing the page uses to check a file after it arrives - it says so, and checks
 the size instead. Both limits come from the address, not from kit: a published (https) page has
@@ -119,6 +123,7 @@ kit send                                 # add files in the window
 kit send report.pdf                      # a link that lasts two hours
 kit send report.pdf --once               # one download, then the link dies
 kit send *.jpg --expire 30m              # one link per file
-kit send video.mp4 --lan                 # another device on this Wi-Fi can load the page too
+kit send video.mp4                       # a phone on this Wi-Fi opens the link
+kit send notes.txt --local               # only this computer (for trying it out)
 kit send big.zip --no-open               # don't open the window for me (I'll open the printed address)
 ```

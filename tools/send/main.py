@@ -862,7 +862,11 @@ def main() -> int:
     parser.add_argument("--expire", metavar="TIME", help="how long the link works: 2h, 90m, 30s (setting: send.expire)")
     parser.add_argument("--page", metavar="URL",
                         help="receiver page the link points at (setting: send.page; empty: this computer's own copy)")
-    parser.add_argument("--lan", action="store_true", help="also let other devices on this network load the receiver page")
+    parser.add_argument("--lan", dest="lan", action="store_const", const=True,
+                        help="let other devices on this network load the receiver page "
+                             "(the default when send.page isn't set)")
+    parser.add_argument("--local", dest="lan", action="store_const", const=False,
+                        help="serve only to this computer: links won't work anywhere else")
     parser.add_argument("--port", type=int, help=f"port to listen on (setting: send.port, default {DEFAULT_PORT})")
     parser.add_argument("--no-open", dest="open", action="store_false", help="don't open the sharing window")
     parser.add_argument("--open", dest="open", action="store_true", help="open the sharing window")
@@ -889,16 +893,20 @@ def main() -> int:
     defaults = {"expire": expire_text, "once": bool(args.once), "max": args.max}
     token = secrets.token_urlsafe(24)
     peer_id = "kit" + secrets.token_hex(12)  # the matchmaker's name for this window
-    host = "0.0.0.0" if args.lan else "127.0.0.1"
+    page = (args.page if args.page is not None else conf.get("page", "")).strip().rstrip("/")
+    # Without a published page the recipient loads kit's own copy, which has to be reachable from
+    # their device; with one, nobody but the window needs this server.
+    lan = args.lan if args.lan is not None else not page
+    host = "0.0.0.0" if lan else "127.0.0.1"
     server = start_server(host, args.port or conf.get("port", DEFAULT_PORT), args.port is not None,
                           token, peer_id, shares, history, defaults, auto_exit=bool(args.files))
     port = server.server_address[1]
-    address = lan_address() if args.lan else None
+    address = lan_address() if lan else None
     if address:
         server.allow_host(f"{address}:{port}")
 
-    page = (args.page if args.page is not None else conf.get("page", "")).strip().rstrip("/")
-    if not page:
+    own_copy = not page
+    if own_copy:
         base = address or "127.0.0.1"
         page = f"http://{base}:{port}/r"
     local_only = urlparse(page).hostname in ("127.0.0.1", "localhost")
@@ -927,10 +935,12 @@ def main() -> int:
         print(f"{style('kit send', 'bold', 'cyan')}  no files yet - add them in the sharing window")
 
     if local_only:
-        print(style("\n  links only work on this computer: publish the receiver page and point at it with", "yellow"))
-        print(style("  --page https://you.github.io/.../send/  (or: kit config set send.page ...)", "yellow"))
-        if args.lan and address:
-            print(style(f"  devices on this network can use http://{address}:{port}/r", "dim"))
+        why = "no network address found" if lan else "--local"
+        print(style(f"\n  links only work on this computer ({why}). To reach anyone, anywhere, publish the", "yellow"))
+        print(style("  receiver page and point at it: kit config set send.page https://you.github.io/.../send/", "yellow"))
+    elif own_copy:
+        print(style("\n  links work for devices on this network (plain http: files over ~300 MB may not fit).", "dim"))
+        print(style("  To reach anyone, anywhere: kit config set send.page https://you.github.io/.../send/", "dim"))
     print(style("\n  the sharing window must stay open - Ctrl+C here stops sharing", "dim"))
 
     ui = f"http://127.0.0.1:{port}/?token={token}"
