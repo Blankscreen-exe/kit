@@ -19,7 +19,6 @@ import sys
 import tempfile
 import threading
 import time
-import urllib.request
 import webbrowser
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -29,14 +28,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
-from kitlib import die, style, theme
+from kitlib import die, reach, style, theme
 from kitlib.browser import open_app_window
 from kitlib.qr import make_qr, qr_lines
 from kitlib.settings import tool_settings
 from kitlib.ui import add_ui_flags, want_ui, why_no_ui
 from kitlib.webserver import KitHandler
 
-from tunnel import Tunnel, TunnelError, download_cloudflared, find_cloudflared, ssl_context
 
 TOOL_DIR = Path(os.environ.get("KIT_TOOL_DIR") or Path(__file__).resolve().parent)
 DEFAULT_PORT = 8770
@@ -440,31 +438,6 @@ def readable_file(raw: str) -> tuple[Path, int]:
 
 # --- addresses -----------------------------------------------------------------------
 
-def lan_address() -> str | None:
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.connect(("10.255.255.255", 1))  # sends nothing; picks the outgoing interface
-            address = sock.getsockname()[0]
-    except OSError:
-        return None
-    return None if address.startswith(("127.", "0.")) else address
-
-
-def public_address() -> str:
-    """This machine's address as the internet sees it, asked of Cloudflare."""
-    try:
-        request = urllib.request.Request("https://www.cloudflare.com/cdn-cgi/trace", headers={"User-Agent": "kit-send"})
-        with urllib.request.urlopen(request, timeout=10, context=ssl_context()) as response:
-            text = response.read().decode("utf-8", "replace")
-    except OSError as exc:
-        raise SetupError(f"couldn't find this machine's public address: {exc} - give it with --address") from None
-    match = re.search(r"^ip=(.+)$", text, re.M)
-    if not match:
-        raise SetupError("couldn't find this machine's public address - give it with --address")
-    address = match.group(1).strip()
-    return f"[{address}]" if ":" in address else address
-
-
 # --- the app: shares, and how the outside world reaches them -------------------------
 
 class App:
@@ -483,7 +456,7 @@ class App:
         self.status = ""                  # "" when links work; "starting" or a problem otherwise
         self.base = ""                    # what every link starts with
         self.share_server: ShareServer | None = None
-        self.tunnel: Tunnel | None = None
+        self.outside: reach.Link | None = None  # how the links reach this machine, for the current mode
         self.finished = threading.Event()  # set when every share is done, so main() can stop
         self.lock = threading.Lock()
         self.mode_lock = threading.Lock()
@@ -563,43 +536,37 @@ class App:
         self.share_server = server
         return server
 
+    def _open(self, mode: str) -> ShareServer:
+        """Listen where this mode needs it, and point the links at it."""
+        server = self._listen(reach.bind_host(mode), 0 if mode == "internet" else self.port,
+                              mode != "internet" and self.explicit_port)
+        # only cloudflared can reach a tunnel listener, so the address it reports is trustworthy
+        server.behind_tunnel = mode == "internet"
+        try:
+            self.outside = reach.open(server.server_address[1], mode, address=self.address,
+                                      cloudflared=self.cloudflared, folder=data_dir(), check_path=PING,
+                                      say=lambda text: log(style(text, "dim")))
+        except reach.ReachError as exc:
+            raise SetupError(str(exc)) from None
+        self.base = self.outside.url
+        return server
+
     def _start_lan(self) -> None:
-        address = lan_address()
-        if not address:
-            raise SetupError("this computer isn't on a network - connect to one, or use --internet")
-        server = self._listen("0.0.0.0", self.port, self.explicit_port)
-        self.base = f"http://{address}:{server.server_address[1]}"
+        self._open("lan")
 
     def _start_public(self) -> None:
-        address = self.address or public_address()
-        server = self._listen("0.0.0.0", self.port, self.explicit_port)
-        port = server.server_address[1]
+        port = self._open("public").server_address[1]
         if port != self.port:
             log(style(f"port {self.port} was taken, so links use {port} - that's the one to open", "accent"))
-        self.base = f"http://{address}:{port}"
 
     def _start_tunnel(self) -> None:
-        server = self._listen("127.0.0.1", 0, False)   # only cloudflared talks to it
-        server.behind_tunnel = True
-        program = find_cloudflared(self.cloudflared, data_dir())
-        try:
-            if program is None:
-                if self.cloudflared:
-                    raise SetupError(f"send.cloudflared points at {self.cloudflared}, which isn't there")
-                program = download_cloudflared(data_dir(), log)
-            log(style("opening a tunnel through Cloudflare...", "dim"))
-            tunnel = Tunnel(program, server.server_address[1])
-            self.tunnel = tunnel
-            self.base = tunnel.start()
-            tunnel.check(PING)
-        except TunnelError as exc:
-            raise SetupError(str(exc)) from None
+        self._open("internet")
 
     def _close_outside(self) -> None:
         # Stops new downloads only: ones already running have their own connections and finish.
-        if self.tunnel:
-            self.tunnel.stop()
-            self.tunnel = None
+        if self.outside:
+            self.outside.close()
+            self.outside = None
         if self.share_server:
             self.share_server.shutdown()
             self.share_server.server_close()

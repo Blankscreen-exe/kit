@@ -334,7 +334,7 @@ are picked up exactly like `tools/`. This is handy for private or work-only tool
 ```text
 kit.py            entry point
 core/             registry (finds tools), runner, CLI, `kit new` templates, `kit config`, `kit update`, hub/, `kit share`
-lib/kitlib/       helpers Python tools can import (output, theme, window-or-terminal, settings, figlet, QR codes, browser, clipboard, web server, Textual)
+lib/kitlib/       helpers Python tools can import (output, theme, window-or-terminal, popups, LAN machines, reaching a port, settings, figlet, QR codes, browser, clipboard, web server, Textual)
 tools/            one folder per tool
 vendor/           bundled third-party binaries (figlet for Windows)
 bin/              launchers: kit.ps1 (PowerShell), kit.cmd (cmd), kit (sh)

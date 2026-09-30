@@ -15,14 +15,13 @@ import json
 import os
 import re
 import secrets
-import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
 from urllib.parse import urlparse, urlsplit, urlunsplit
 
-from kitlib import die, style, warn
+from kitlib import die, reach, style, warn
 from kitlib.qr import qr_lines
 
 from core import paths, proc, registry, runner
@@ -173,59 +172,25 @@ def _format_duration(seconds: float) -> str:
 
 # --- tailscale --------------------------------------------------------------------------
 #
-# `tailscale serve` configures the already-running tailscaled daemon to proxy a port to
-# this machine's tailnet address over HTTPS; it's a one-shot call, not a process to track -
-# unlike a public tunnel (cloudflared etc.), which stays running and would need its own pid
-# tracked alongside the app's. That's not built yet.
-
-def _decode(value: str | bytes | None) -> str:
-    """subprocess.TimeoutExpired's .stdout/.stderr come back as bytes even with text=True,
-    since they're whatever had been read before the timeout, not run through the normal
-    decoding path."""
-    if value is None:
-        return ""
-    return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
-
+# `tailscale serve` (through kitlib.reach) configures the already-running tailscaled daemon to
+# proxy a port to this machine's tailnet address over HTTPS; it's a one-shot call, not a process
+# to track - unlike a public tunnel (cloudflared), which stays running and would need its own
+# pid tracked alongside the app's. That's not built yet.
 
 def _tailscale_share(local_url: str) -> str | None:
-    """Point `tailscale serve` at local_url's port; returns the tailnet address for the
-    same path and query, or None if that didn't work - never fatal: the app itself is
-    already running by the time this runs, and stays running either way."""
-    if not shutil.which("tailscale"):
-        warn("tailscale isn't installed or not on PATH - see https://tailscale.com/download "
-            "(the app itself is still running - share with --lan instead, or install tailscale and stop/start again)")
-        return None
+    """Point `tailscale serve` at local_url's port; returns the tailnet address for the same
+    path and query, or None if that didn't work - never fatal: the app itself is already
+    running by the time this runs, and stays running either way."""
     parts = urlsplit(local_url)
     if not parts.port:
         warn(f"couldn't tell which port {local_url} is on, so there's nothing to point tailscale at")
         return None
     try:
-        result = subprocess.run(["tailscale", "serve", "--bg", str(parts.port)],
-                                capture_output=True, text=True, timeout=15)
-    except subprocess.TimeoutExpired as exc:
-        # tailscale prints its own explanation (often a one-time setup link) before it blocks
-        # waiting on something - e.g. Serve needing to be turned on for the tailnet in the
-        # admin console - so show whatever it already said rather than just "timed out".
-        partial = (_decode(exc.stdout) + _decode(exc.stderr)).strip()
-        if partial:
-            warn(f"tailscale serve is waiting on something before it can continue:\n{partial}")
-        else:
-            warn(f"tailscale serve didn't finish within 15s and printed nothing - "
-                f"check it yourself: tailscale serve --bg {parts.port}")
+        tailnet = urlsplit(reach.open(parts.port, "tailnet").url)
+    except reach.ReachError as exc:
+        warn(f"{exc}\n(the app itself is still running - share it on the LAN instead, or fix that and "
+             "stop/start it again)")
         return None
-    except OSError as exc:
-        warn(f"couldn't run tailscale: {exc}")
-        return None
-    output = ((result.stdout or "") + (result.stderr or "")).strip()
-    if result.returncode != 0:
-        warn(f"tailscale serve failed:\n{output}")
-        return None
-    match = URL_RE.search(output)
-    if not match:
-        print(style("  tailscale serve ran, but no address was found in its output - "
-                    "check: tailscale serve status", "dim"))
-        return None
-    tailnet = urlsplit(match.group(0).rstrip(".,;)"))
     return urlunsplit((tailnet.scheme, tailnet.netloc, parts.path, parts.query, ""))
 
 
