@@ -31,6 +31,7 @@ kit - personal toolbox
   PRODUCTIVITY
     content-machine  cm             Start Content Machine, the local content pipeline, or run any of its cm commands.
     countdown        timer          A big countdown timer in the terminal that you can click or drive with keys, with an alert when time is up.
+    jobs             jt             Open the job tracker, the local app for companies you're interested in and the jobs you've applied to, or run any of its jobs commands.
     pad              scratch, note  A plain scratch pad in the terminal that saves as you type, for drafting messages and parking links.
     pomodoro         pomo           A pomodoro focus timer in the terminal that you can drive with the mouse or keyboard, and that keeps a history of your sessions.
     prompt-cache     pc, prompts    Write, find and fill reusable AI prompts in seconds, without managing files.
