@@ -9,7 +9,8 @@ kit pomodoro [--focus MIN] [--short MIN] [--long MIN] [--every N] [--task TEXT]
 kit pomodoro --stats
 ```
 
-- Big countdown, progress bar and session dots (a long break comes after every N focus sessions).
+- Big square countdown (5 rows tall, 3 in a short window), progress bar and session dots (a long break
+  comes after every N focus sessions). Focus is shown in yellow, breaks in green.
 - Click the buttons (Start/Pause, Reset, Skip, −1m, +1m, ⚙ settings) or use the keys shown at the bottom:
   `space` start/pause, `r` reset, `s` skip, `-` / `+` change the time, `t` edit the task, `,` settings, `q` quit.
 - Type what you're working on in the task box; `Enter` or `Esc` returns the keys to the timer.

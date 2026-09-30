@@ -3,6 +3,8 @@
 A personal toolbox for the terminal. One command, `kit`, lists every tool, shows its docs and runs it,
 from PowerShell, cmd, or a Linux/macOS shell. `kit hub` does the same from a dashboard in your browser.
 
+![kit's tools in its Concrete look: countdown, pomodoro and pad in the terminal; notify, hub and docker-view in the browser](docs/images/kit_preview.png)
+
 ```text
 $ kit
 kit - personal toolbox

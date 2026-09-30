@@ -15,7 +15,8 @@ kit countdown --until <time> [message...]
 - `--until` counts down to the next time the clock shows that time: `14:30`, `2:30pm`, `9am`.
 - With no duration, the timer opens and asks for one: click a preset (1m to 1h), or fill in how long, or a clock
   time to count down to, plus an optional message. `esc` there closes the timer again.
-- The screen shows the time left in big digits, your message, a progress bar and when it ends. Click the buttons
+- The screen shows the time left in big square digits (5 rows tall, 3 in a short window), your message, a
+  progress bar and when it ends. Click the buttons
   or use the keys: `space` pause/resume, `-` / `+` take away or add a minute, `r` reset, `n` start a new
   countdown, `q` quit.
 - When time is up the screen flashes, the terminal beeps and you get a desktop notification (Windows toast,
