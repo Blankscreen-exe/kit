@@ -244,6 +244,7 @@ function buildCard(share) {
     <div class="row" style="margin-top:8px">
       <button class="copy">Copy link</button>
       <button class="qr-toggle">QR code</button>
+      <button class="notify-toggle">Notify…</button>
       <span class="copied" hidden>copied</span>
       <span class="spacer"></span>
       <label class="opt">lasts <select class="expire"></select></label>
@@ -251,6 +252,15 @@ function buildCard(share) {
       <button class="remove link-ish">Remove</button>
     </div>
     <div class="qr" hidden><img alt="QR code for this link"></div>
+    <div class="notify" hidden>
+      <div class="notify-list"></div>
+      <div class="row notify-actions">
+        <button class="primary notify-send" disabled>Send link</button>
+        <button class="ghost notify-again">Look again</button>
+        <span class="meta notify-state"></span>
+      </div>
+      <div class="notify-results"></div>
+    </div>
     <div class="transfers"></div>`;
 
   card.querySelector(".name").textContent = share.name;
@@ -278,6 +288,8 @@ function buildCard(share) {
       image.src = "/api/qr?token=" + encodeURIComponent(share.token) + "&v=" + encodeURIComponent(image.dataset.link || "");
     }
   });
+
+  setUpNotify(card, share);
 
   const expire = card.querySelector(".expire");
   const max = card.querySelector(".max");
@@ -327,6 +339,8 @@ function render() {
       || (state.status === "starting" ? "getting a link…" : "no link - " + (state.status || "stopped"));
     card.querySelector(".copy").disabled = !ready;
     card.querySelector(".qr-toggle").disabled = !ready;
+    card.querySelector(".notify-toggle").disabled = !ready;
+    if (!ready) card.querySelector(".notify").hidden = true;
     card.querySelector(".remove").disabled = !!share.dead;
     showTransfers(card, share);
     const expire = card.querySelector(".expire");
@@ -343,6 +357,97 @@ function render() {
     }
   }
   $("empty").hidden = state.shares.size > 0;
+}
+
+// --- notify: send a link to the kit machines on this network ----------------------------
+
+function setUpNotify(card, share) {
+  const panel = card.querySelector(".notify");
+  const list = card.querySelector(".notify-list");
+  const sendButton = card.querySelector(".notify-send");
+  const stateText = card.querySelector(".notify-state");
+  const results = card.querySelector(".notify-results");
+
+  const picked = () => [...list.querySelectorAll("input[data-id]")].filter((box) => box.checked);
+  const updateSend = () => { sendButton.disabled = picked().length === 0; };
+
+  async function lookAround() {
+    list.innerHTML = "";
+    results.innerHTML = "";
+    sendButton.disabled = true;
+    stateText.textContent = "looking for machines…";
+    let data;
+    try {
+      data = await api("/api/devices");
+    } catch (error) {
+      stateText.textContent = String(error.message || error);
+      return;
+    }
+    if (!data.passphrase) {
+      stateText.textContent = "";
+      list.innerHTML = '<div class="hint">No machines can be found until notify.passphrase is set, the same on ' +
+        'every machine: <code>kit config set notify.passphrase &lt;same value everywhere&gt;</code></div>';
+      return;
+    }
+    if (!data.devices.length) {
+      stateText.textContent = "no other machines answered - are they running kit notify?";
+      return;
+    }
+    stateText.textContent = `${data.devices.length} found`;
+    const all = document.createElement("label");
+    all.className = "check";
+    all.innerHTML = '<input type="checkbox" checked> All machines';
+    const allBox = all.querySelector("input");
+    list.appendChild(all);
+    for (const device of data.devices) {
+      const row = document.createElement("label");
+      row.className = "check";
+      row.innerHTML = '<input type="checkbox" checked><span class="who"></span><span class="ip"></span>';
+      row.querySelector("input").dataset.id = device.id;
+      row.querySelector(".who").textContent = device.name;
+      row.querySelector(".ip").textContent = device.ip;
+      row.querySelector("input").addEventListener("change", () => {
+        allBox.checked = picked().length === data.devices.length;
+        updateSend();
+      });
+      list.appendChild(row);
+    }
+    allBox.addEventListener("change", () => {
+      for (const box of list.querySelectorAll("input[data-id]")) box.checked = allBox.checked;
+      updateSend();
+    });
+    updateSend();
+  }
+
+  card.querySelector(".notify-toggle").addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) lookAround();
+  });
+  card.querySelector(".notify-again").addEventListener("click", lookAround);
+
+  sendButton.addEventListener("click", async () => {
+    const boxes = list.querySelectorAll("input[data-id]");
+    const ids = picked().map((box) => box.dataset.id);
+    sendButton.disabled = true;
+    stateText.textContent = "sending…";
+    try {
+      const reply = await post("/api/notify", { token: share.token, to: ids.length === boxes.length ? "all" : ids });
+      results.innerHTML = "";
+      for (const result of reply.results) {
+        const badge = document.createElement("span");
+        badge.className = "badge " + (result.ok ? "sent" : "failed");
+        badge.textContent = (result.ok ? "✓ " : "✗ ") + result.name;
+        if (result.error) badge.title = result.error;
+        results.appendChild(badge);
+      }
+      const failed = reply.results.filter((r) => !r.ok).length;
+      stateText.textContent = failed ? `${failed} didn't get it - hover a ✗ for why` : "sent";
+    } catch (error) {
+      stateText.textContent = String(error.message || error);
+    } finally {
+      updateSend();
+    }
+  });
 }
 
 // One row per download in progress, as kit reports them.

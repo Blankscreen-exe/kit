@@ -9,6 +9,7 @@ kit send                                     # open the sharing window and add f
 kit send <file> [<file>...] [--once | --max N] [--expire 2h]
 kit send <file> [--lan | --internet | --public [--address HOST]] [--port N]
 kit send <file> [--ui | --no-ui] [--no-open] [--no-qr] [--no-window]
+kit send <file> --notify [NAMES]
 ```
 
 kit serves the files itself. Whoever opens a link gets a small page with a **Download** button; from a
@@ -71,6 +72,22 @@ kit picks the terminal by itself in an SSH session, or on Linux with no desktop 
 from your own PC through an SSH tunnel (`ssh -L PORT:127.0.0.1:PORT my-server`). The older `--headless`
 and `--open` still work, meaning `--no-ui` and `--ui`.
 
+## Telling your other machines
+
+kit can send a link straight to your other machines, through [kit notify](../notify/README.md): it pops
+up there, and clicking the popup opens the download page (on Windows; elsewhere the link is in the
+message). Every machine that should get it runs `kit notify serve` or the notify window, and they all
+share the same `notify.passphrase` - the one-time setup notify describes.
+
+- **In the window:** **Notify…** on a link lists the machines kit finds on this network, all ticked;
+  untick any, then **Send link**. Each machine gets a ✓ or a ✗ (hover it for why).
+- **From a terminal:** `--notify` sends every link to every machine found, `--notify laptop,desk` only to
+  those, by name or address. Put it after the files (`kit send photo.jpg --notify`); `--notify photo.jpg`
+  works too - a file given there is shared, not taken for a machine name.
+
+This machine is never on the list. Machines are found on this network only, even for an `--internet`
+link - to reach one elsewhere, send it the link yourself.
+
 ## Limits and expiry
 
 | | |
@@ -127,4 +144,6 @@ kit send report.pdf --internet --once    # a link that works anywhere, for one d
 kit send *.jpg --expire 30m              # one link per file
 kit send big.iso --public --port 8080    # a server with port 8080 open to the internet
 kit send notes.txt --no-ui               # no window, even on a desktop
+kit send slides.pdf --notify             # and pop the link up on your other machines
+kit send movie.mp4 --notify laptop       # ...or just on the one called laptop
 ```

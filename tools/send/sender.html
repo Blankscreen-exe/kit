@@ -46,6 +46,15 @@ header { margin-bottom: 18px; }
 .dropzone.on { display: grid; }
 .dropzone span { border: 3px dashed var(--accent); padding: 18px 26px; background: var(--panel);
   font: 900 16px var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+.notify { margin-top: 12px; padding-top: 10px; border-top: 3px dashed var(--dim); }
+.notify-list { display: flex; flex-direction: column; max-width: 420px; }
+.check { display: flex; align-items: center; gap: 10px; padding: 6px 8px; cursor: pointer; font: 700 12px var(--mono); }
+.check:hover { background: var(--accent); color: var(--on-accent); }
+.check:hover .ip { color: var(--on-accent); }
+.check .ip { color: var(--dim); font-weight: 400; margin-left: auto; }
+.notify-actions { margin-top: 8px; }
+.notify-results { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.notify-results:empty { display: none; }
 .hist { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--raised); font-size: 13px; }
 .hist:last-child { border-bottom: 0; }
 .hist .name { font-weight: 400; text-transform: none; }

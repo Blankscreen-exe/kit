@@ -28,7 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
-from kitlib import die, reach, style, theme
+from kitlib import die, lan, reach, style, theme, warn
 from kitlib.browser import open_app_window
 from kitlib.qr import make_qr, qr_lines
 from kitlib.settings import tool_settings
@@ -463,6 +463,7 @@ class App:
         self.dialog_lock = threading.Lock()
         self.transfer_ids = itertools.count(1)
         self.upload_dir: Path | None = None
+        self.devices: dict[str, lan.Device] = {}  # the machines the window last found, by id
 
     # -- shares
 
@@ -911,6 +912,8 @@ class ControlHandler(KitHandler, BaseHTTPRequestHandler):
                 return self.send_qr(params.get("token", [""])[0])
             if url.path == "/api/history":
                 return self.send_json(HTTPStatus.OK, {"entries": list(reversed(self.server.app.history.entries))})
+            if url.path == "/api/devices":
+                return self.send_json(HTTPStatus.OK, self.handle_devices())
         except ApiError as exc:
             return self.send_error_json(exc.status, str(exc))
         return self.send_error_json(HTTPStatus.NOT_FOUND, "not found")
@@ -978,6 +981,8 @@ class ControlHandler(KitHandler, BaseHTTPRequestHandler):
                 return self.send_json(HTTPStatus.OK, self.handle_remove(body))
             if url.path == "/api/mode":
                 return self.send_json(HTTPStatus.OK, self.handle_mode(body))
+            if url.path == "/api/notify":
+                return self.send_json(HTTPStatus.OK, self.handle_notify(body))
             if url.path == "/api/history/clear":
                 app.history.clear()
                 return self.send_json(HTTPStatus.OK, {"entries": []})
@@ -992,6 +997,30 @@ class ControlHandler(KitHandler, BaseHTTPRequestHandler):
         return self.send_error_json(HTTPStatus.NOT_FOUND, "not found")
 
     # -- window actions
+
+    def handle_devices(self) -> dict:
+        """The machines a link can be sent to (discovery takes a second or two)."""
+        if not lan.settings()["passphrase"]:
+            return {"passphrase": False, "devices": []}
+        devices = sorted(nearby_devices(), key=lambda d: (d.name.lower(), d.ip))
+        self.server.app.devices = {device.id: device for device in devices}
+        return {"passphrase": True, "devices": [{"id": d.id, "name": d.name, "ip": d.ip} for d in devices]}
+
+    def handle_notify(self, body: dict) -> dict:
+        app = self.server.app
+        share = self.live_share(str(body.get("token") or ""))
+        if not app.link(share):
+            raise ApiError("the link isn't ready yet", HTTPStatus.CONFLICT)
+        to, known = body.get("to"), dict(app.devices)
+        devices = list(known.values()) if to == "all" else [known[i] for i in to if i in known] if isinstance(to, list) else []
+        if not devices:
+            raise ApiError("pick at least one machine", HTTPStatus.BAD_REQUEST)
+        results = notify_devices(app, share, devices)
+        for device, error in results:
+            log(f"{style('notified', 'good')}  {device.name} about {share.name}" if error is None
+                else style(f"couldn't notify {device.name}: {error}", "bad"))
+        return {"results": [{"id": d.id, "name": d.name, "ok": error is None, "error": str(error or "")}
+                            for d, error in results]}
 
     def handle_dialog(self) -> dict:
         lock = self.server.app.dialog_lock
@@ -1102,6 +1131,50 @@ class ControlHandler(KitHandler, BaseHTTPRequestHandler):
         return self.state()
 
 
+# --- telling other machines: kit notify's network, through kitlib.lan ------------------
+
+def notify_text(share: Share, link: str) -> str:
+    """What a notified machine shows: the link on its own line, so its popup can open it."""
+    return f"{share.name} ({human_bytes(share.size)}) from {socket.gethostname()}:\n{link}"
+
+
+def nearby_devices() -> list[lan.Device]:
+    """The kit machines discovery finds on this network, not counting this one."""
+    own = lan.own_token()
+    return [device for device in lan.discover() if device.token != own]
+
+
+def notify_devices(app: App, share: Share,
+                   devices: list[lan.Device]) -> list[tuple[lan.Device, lan.DeliveryError | None]]:
+    return lan.send_to_all(devices, notify_text(share, app.link(share)), title="kit send")
+
+
+def cli_notify(app: App, names: str) -> None:
+    """--notify: send each link to the machines on this network, and say how that went. Never fatal:
+    the links work either way."""
+    if not lan.settings()["passphrase"]:
+        warn("--notify: notify.passphrase isn't set, so there's no one to find - "
+             "kit config set notify.passphrase <same value on every machine>")
+        return
+    print(style("\n  looking for machines to notify...", "dim"), flush=True)
+    devices = nearby_devices()
+    if names != "all":
+        devices, missing = lan.pick(devices, names.split(","))
+        if missing:
+            warn(f"--notify: not found on this network: {', '.join(missing)}")
+    if not devices:
+        warn("--notify: no other machines answered - are they running kit notify, with the same notify.passphrase?")
+        return
+    for share in list(app.shares.values()):
+        if not app.link(share):
+            continue
+        for device, error in notify_devices(app, share, devices):
+            if error is None:
+                print(f"  {style('notified', 'good')}  {device.name}  {style(share.name, 'dim')}")
+            else:
+                warn(f"--notify: {device.name} {error}")
+
+
 # --- start ---------------------------------------------------------------------------
 
 def print_links(app: App, show_qr: bool) -> None:
@@ -1146,6 +1219,9 @@ def main() -> int:
     parser.add_argument("--no-open", dest="open", action="store_false",
                         help="run the sharing window but don't open it: its address is printed (e.g. for an SSH tunnel)")
     parser.add_argument("--no-qr", dest="qr", action="store_false", help="don't print QR codes of the links")
+    parser.add_argument("--notify", nargs="?", const="all", metavar="NAMES",
+                        help="also send each link to the kit machines on this network (kit notify): all of them, "
+                             "or only NAMES, comma-separated")
     parser.add_argument("--window", dest="window", action="store_true", help="open in an app window (setting: send.window)")
     parser.add_argument("--no-window", dest="window", action="store_false", help="open in a normal browser tab")
     conf = tool_settings()
@@ -1153,6 +1229,10 @@ def main() -> int:
                         window=conf.get("window", True),
                         once=conf.get("once", False))
     args = parser.parse_args()
+    if args.notify not in (None, "all") and Path(args.notify).exists():
+        # `kit send --notify photo.jpg`: --notify took the file as the names to notify
+        args.files.insert(0, args.notify)
+        args.notify = "all"
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="replace")   # a file name the console can't show mustn't crash kit
@@ -1220,6 +1300,8 @@ def main() -> int:
                   f"{'links last' if many else 'link lasts'} {human_time(expire_seconds)}"
                   f"{', one download each' if limit == 1 else f', {limit} downloads each' if limit else ''}")
             print_links(app, args.qr)
+            if args.notify:
+                cli_notify(app, args.notify)
         elif not app.shares:
             print("  no files yet - add them in the sharing window")
         if app.internet_kind == "public" and app.mode == "internet":
