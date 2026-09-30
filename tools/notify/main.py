@@ -18,7 +18,6 @@ import re  # noqa: E402
 import secrets  # noqa: E402
 import select  # noqa: E402
 import socket  # noqa: E402
-import subprocess  # noqa: E402
 import sys  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
@@ -33,6 +32,7 @@ from urllib.request import Request, urlopen  # noqa: E402
 
 from kitlib import die, style, theme, warn
 from kitlib.browser import no_display, open_app_window
+from kitlib.popup import popup
 from kitlib.ui import add_ui_flags, want_ui, why_no_ui
 from kitlib.webserver import KitHandler
 from kitlib.settings import tool_settings
@@ -90,67 +90,23 @@ def _load_or_create_token(rotate: bool = False) -> str:
     return value
 
 
-# --- showing the notification, per platform ---------------------------------------------
-
-def _applescript_string(text: str) -> str:
-    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-
-def _powershell_string(text: str) -> str:
-    return "'" + text.replace("'", "''") + "'"
-
+# --- showing the notification ---------------------------------------------------------
 
 _popup_warned = False
 
 
 def show_notification(title: str, message: str) -> None:
-    """A desktop popup, where there's a desktop. Every message is printed in the terminal too
-    (print_received), so a machine that can't show one - a server, an SSH session - loses nothing."""
+    """A desktop popup, where there's a desktop - clicking it opens the first link in the message.
+    Every message is printed in the terminal too (print_received), so a machine that can't show one
+    - a server, an SSH session - loses nothing."""
     global _popup_warned
     if no_display():
         return
-    try:
-        if IS_WINDOWS:
-            # No extra install needed: WinForms' tray-balloon API, part of every .NET-equipped
-            # Windows box, rather than the newer toast APIs that need an extra module.
-            #
-            # The process has to stay alive - and running a real message loop, not just
-            # sleeping - for a click to have anywhere to land: BalloonTipClicked only fires
-            # while Application.Run() is pumping events. It exits on either a click (opening
-            # the first link found in the message first, if any) or the balloon closing on its
-            # own; the 15s timeout below is only a safety net if neither ever fires.
-            link_match = URL_RE.search(message)
-            link = link_match.group(0).rstrip(".,;)") if link_match else ""
-            click_handler = (
-                f"$n.add_BalloonTipClicked({{ Start-Process {_powershell_string(link)}; "
-                "[System.Windows.Forms.Application]::ExitThread() }); "
-            ) if link else ""
-            script = (
-                "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; "
-                "$n = New-Object System.Windows.Forms.NotifyIcon; "
-                "$n.Icon = [System.Drawing.SystemIcons]::Information; "
-                f"$n.BalloonTipTitle = {_powershell_string(title)}; "
-                f"$n.BalloonTipText = {_powershell_string(message)}; "
-                "$n.Visible = $true; "
-                f"{click_handler}"
-                "$n.add_BalloonTipClosed({ [System.Windows.Forms.Application]::ExitThread() }); "
-                "$n.ShowBalloonTip(8000); "
-                "[System.Windows.Forms.Application]::Run(); "
-                "$n.Dispose()"
-            )
-            subprocess.run(["powershell", "-NoProfile", "-Command", script],
-                           capture_output=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
-        elif IS_MACOS:
-            script = f"display notification {_applescript_string(message)} with title {_applescript_string(title)}"
-            subprocess.run(["osascript", "-e", script], capture_output=True, timeout=10)
-        else:
-            subprocess.run(["notify-send", "--", title, message], capture_output=True, timeout=10)
-    except FileNotFoundError:
-        if not _popup_warned:
-            _popup_warned = True
-            warn("no desktop notification tool found here (notify-send on Linux) - messages only print below")
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        warn(f"couldn't show a popup ({exc}) - the message is printed below")
+    link_match = URL_RE.search(message)
+    link = link_match.group(0).rstrip(".,;)") if link_match else None
+    if not popup(title, message, link=link, app="kit notify") and not _popup_warned:
+        _popup_warned = True
+        warn("no desktop notification tool found here (notify-send on Linux) - messages only print below")
 
 
 def print_received(sender: str, title: str, message: str) -> None:
@@ -408,10 +364,7 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
         if self.server.window:
             self.server.window.received(sender or self.client_address[0], self.client_address[0], own_title, message)
         print_received(sender or self.client_address[0], own_title, message)
-        # not inline: on Windows, show_notification now blocks until the balloon is clicked or
-        # closes on its own (that's what makes clicking it work at all) - up to several seconds,
-        # which the sender has no reason to sit through just to get its "delivered" response
-        threading.Thread(target=show_notification, args=(title, message), daemon=True).start()
+        show_notification(title, message)  # starts the popup and returns: the sender isn't kept waiting
         self._json(HTTPStatus.OK, {"ok": True})
 
 

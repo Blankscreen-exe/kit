@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import argparse
 import math
-import os
 import re
-import shutil
-import subprocess
 import sys
 import time
 from datetime import datetime, timedelta
 
 from kitlib import KIT_HOME, die, style
+from kitlib.popup import beep, popup
 from kitlib.settings import tool_settings
 from kitlib.theme import ACCENT, BAD, DIM, EDGE, MUTED, TEXT
 
@@ -152,46 +150,12 @@ class Countdown:
 
 # --- alerts --------------------------------------------------------------------------------
 
-# Windows toast through PowerShell's built-in WinRT access: no modules, title and text passed via
-# environment variables and inserted as XML text nodes, so the message can't break the script.
-TOAST_SCRIPT = r"""
-$ErrorActionPreference = 'Stop'
-[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
-$xml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
-$texts = $xml.GetElementsByTagName('text')
-$texts.Item(0).AppendChild($xml.CreateTextNode($env:KIT_TOAST_TITLE)) > $null
-$texts.Item(1).AppendChild($xml.CreateTextNode($env:KIT_TOAST_BODY)) > $null
-$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-if ($env:KIT_TOAST_DRYRUN) { 'toast ready'; exit 0 }
-$appId = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
-"""
-
-
-def windows_toast_command() -> list[str]:
-    shell = shutil.which("powershell") or shutil.which("pwsh") or "powershell"
-    return [shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", TOAST_SCRIPT]
-
-
 def desktop_alert(title: str, message: str, notification: bool) -> None:
-    """System sound, plus a desktop notification when `notification` is true. Best effort, never raises."""
-    quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
-    try:
-        if sys.platform.startswith("win"):
-            import winsound
-
-            winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
-            if notification:
-                env = dict(os.environ, KIT_TOAST_TITLE=title, KIT_TOAST_BODY=message)
-                subprocess.Popen(windows_toast_command(), env=env, creationflags=subprocess.CREATE_NO_WINDOW, **quiet)
-        elif sys.platform == "darwin":
-            if notification:
-                script = ["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run"]
-                subprocess.Popen(["osascript", *script, title, message], **quiet)
-        elif notification and shutil.which("notify-send"):
-            subprocess.Popen(["notify-send", "-u", "critical", "-a", "kit countdown", title, message], **quiet)
-    except Exception:
-        pass
+    """The system sound, plus a desktop popup when `notification` is true. Never raises."""
+    if notification:
+        popup(title, message, sound=True, urgent=True, app="kit countdown")
+    else:
+        beep()
 
 
 # --- plain mode ------------------------------------------------------------------------------

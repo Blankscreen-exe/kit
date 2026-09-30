@@ -6,8 +6,6 @@ import argparse
 import json
 import math
 import os
-import shutil
-import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass
@@ -15,6 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from kitlib import KIT_HOME, die, style
+from kitlib.popup import popup
 from kitlib.settings import SettingsError, set_value, tool_settings
 from kitlib.settings import load as load_settings
 from kitlib.theme import ACCENT, BAD, DIM, GOOD, MUTED, TEXT
@@ -176,20 +175,8 @@ class Timer:
 
 
 def desktop_alert(title: str, message: str) -> None:
-    """Best-effort OS-level nudge; the in-app notification and bell always happen."""
-    try:
-        if sys.platform.startswith("win"):
-            import winsound
-
-            winsound.MessageBeep(winsound.MB_ICONASTERISK)
-        elif sys.platform == "darwin":
-            script = f'display notification "{message}" with title "{title}"'
-            subprocess.Popen(["osascript", "-e", script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        elif shutil.which("notify-send"):
-            subprocess.Popen(["notify-send", "-a", "kit pomodoro", title, message],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
+    """A desktop popup and the system sound; the in-app notification and bell always happen too."""
+    popup(title, message, sound=True, app="kit pomodoro")
 
 
 # --- UI --------------------------------------------------------------------------

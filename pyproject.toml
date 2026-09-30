@@ -26,3 +26,12 @@ dependencies = [
 [tool.uv]
 # kit is a collection of scripts, not an installable package
 package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["lib", "."]
