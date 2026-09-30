@@ -5,20 +5,28 @@ Send a desktop notification to another PC on your LAN or tailnet.
 ## Usage
 
 ```
-kit notify
+kit notify [--ui | --no-ui]
 kit notify serve [--port N] [--rotate] [--discovery-port N]
-kit notify send [<url>] "message" [--title TEXT] [--discovery-port N]
+kit notify send [<url>] "message" [--title TEXT] [--to NAMES] [--discovery-port N]
+kit notify devices [--discovery-port N]
 ```
 
 - `kit notify` on its own opens a window (see below). Where there's no desktop to show one on - an
   SSH session, or Linux without a display - it prints this help instead.
-- `kit notify serve` listens for notifications and pops them up on this machine. It prints its own
-  address, ending in `?t=...` - that's what the other machine sends to.
+- `--ui` opens the window even where kit would print the help, `--no-ui` prints the help even on a desktop.
+- `kit notify serve` listens for notifications, pops them up on this machine and prints each one in the
+  terminal as it arrives (time, sender, title, message) - on a server with no desktop, that printed list
+  is how you read them. It prints its own address, ending in `?t=...` - that's what the other machine
+  sends to.
   It's always reachable on this network, and discoverable too once a passphrase is set (see below).
 - `kit notify send <url> "message"` sends one, where `<url>` is exactly what `serve` printed on the
   other machine.
 - `kit notify send "message"` - **no address** - finds every discoverable machine on this network
   by itself and sends to all of them. Nothing to copy or save, once set up (below).
+- `--to laptop,desk` sends only to the machines named (by name as `devices` shows it, or by address)
+  instead of all of them - the window's checklist, from a terminal. A name that isn't found stops it,
+  listing what was.
+- `kit notify devices` lists the machines discovery finds, with their addresses, marking this one.
 - Run `serve` on every machine you want to be able to notify, and `send` from any of them.
 - The token stays the same across restarts (kept on disk, not made fresh every time), so save the
   address once and it keeps working. `--rotate` deliberately replaces it - do that if it ever leaks.
@@ -94,6 +102,8 @@ kit config set notify.passphrase house-of-blue-lights          # once, same valu
 kit notify                                                    # the window: send and receive
 kit notify serve                                              # or just receive, from a terminal
 kit notify send "build's done"                                # finds it automatically, same LAN
+kit notify send "backup finished" --to laptop                 # only the machine called laptop
+kit notify devices                                            # who's out there
 kit notify send http://192.168.1.28:8899/?t=AbCd1234 "build's done"  # or, a specific address
 kit share start notify --tailscale -- serve                    # across your tailnet instead
 ```

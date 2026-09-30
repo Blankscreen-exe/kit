@@ -8,7 +8,7 @@ Send files to someone's browser with a link, over your network or the internet.
 kit send                                     # open the sharing window and add files there
 kit send <file> [<file>...] [--once | --max N] [--expire 2h]
 kit send <file> [--lan | --internet | --public [--address HOST]] [--port N]
-kit send <file> [--headless] [--no-open] [--no-qr] [--no-window]
+kit send <file> [--ui | --no-ui] [--no-open] [--no-qr] [--no-window]
 ```
 
 kit serves the files itself. Whoever opens a link gets a small page with a **Download** button; from a
@@ -66,7 +66,10 @@ kit send  1 file, link lasts 2h 00m, one download each
 ```
 
 kit picks the terminal by itself in an SSH session, or on Linux with no desktop (`DISPLAY` and
-`WAYLAND_DISPLAY` both unset). `--headless` asks for it anywhere; `--open` asks for the window anyway.
+`WAYLAND_DISPLAY` both unset). `--no-ui` asks for it anywhere; `--ui` asks for the window anyway.
+`--no-open` runs the window without opening it and prints its address - on a server, open that address
+from your own PC through an SSH tunnel (`ssh -L PORT:127.0.0.1:PORT my-server`). The older `--headless`
+and `--open` still work, meaning `--no-ui` and `--ui`.
 
 ## Limits and expiry
 
@@ -123,5 +126,5 @@ kit send report.pdf                      # a link for this network that lasts tw
 kit send report.pdf --internet --once    # a link that works anywhere, for one download
 kit send *.jpg --expire 30m              # one link per file
 kit send big.iso --public --port 8080    # a server with port 8080 open to the internet
-kit send notes.txt --headless            # no window, even on a desktop
+kit send notes.txt --no-ui               # no window, even on a desktop
 ```

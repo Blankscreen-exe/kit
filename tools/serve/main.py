@@ -18,6 +18,7 @@ from pathlib import Path
 from kitlib import KIT_HOME, die, style, warn
 from kitlib.webserver import KitHandler
 from kitlib.settings import tool_settings
+from kitlib.ui import add_ui_flags, want_ui, why_no_ui
 
 try:
     import psutil
@@ -113,12 +114,16 @@ def print_banner(title: str, host: str, port: int, show_qr: bool) -> str:
 
 
 def handle_window(args: argparse.Namespace, url: str) -> None:
+    """The window is an extra: only where there's a display (a server would get a text browser
+    in its terminal instead), unless --ui insists."""
     if args.print_window_command:
         command = app_window_command(url)
         shown = subprocess.list2cmdline(command) if command else f"(no Chromium browser) webbrowser.open({url})"
         print(f"window command: {shown}", flush=True)
-    elif args.window:
+    elif want_ui(args.ui, default=args.window_setting):
         open_app_window(url)
+    elif args.window_setting and args.ui is None:
+        print(style(f"  not opening a window: {why_no_ui()}", "dim"), flush=True)
 
 
 # --- folder server ---------------------------------------------------------------------
@@ -296,11 +301,12 @@ def main() -> int:
                         help=f"port to listen on (default: the serve.port setting or {DEFAULT_PORT}, or the next free one)")
     parser.add_argument("--host", default=conf.get("host", "0.0.0.0"),
                         help="address to listen on: 0.0.0.0 = every network, 127.0.0.1 = this computer only (setting: serve.host)")
-    parser.add_argument("--window", action="store_true", help="also open the page in its own app window (setting: serve.window)")
-    parser.add_argument("--no-window", dest="window", action="store_false", help="don't open an app window")
+    add_ui_flags(parser, ui_help="also open the page in its own app window (setting: serve.window)",
+                 no_ui_help="terminal only: no window, even with serve.window on",
+                 ui_aliases=("--window",), no_ui_aliases=("--no-window",))
     parser.add_argument("--no-qr", action="store_true", help="don't print a QR code")
     parser.add_argument("--print-window-command", action="store_true", help=argparse.SUPPRESS)  # for testing --window
-    parser.set_defaults(window=conf.get("window", False))
+    parser.set_defaults(window_setting=conf.get("window", False))
     args = parser.parse_args()
 
     for name in ("port", "app"):

@@ -33,6 +33,7 @@ from urllib.request import Request, urlopen  # noqa: E402
 
 from kitlib import die, style, theme, warn
 from kitlib.browser import no_display, open_app_window
+from kitlib.ui import add_ui_flags, want_ui, why_no_ui
 from kitlib.webserver import KitHandler
 from kitlib.settings import tool_settings
 
@@ -99,7 +100,15 @@ def _powershell_string(text: str) -> str:
     return "'" + text.replace("'", "''") + "'"
 
 
+_popup_warned = False
+
+
 def show_notification(title: str, message: str) -> None:
+    """A desktop popup, where there's a desktop. Every message is printed in the terminal too
+    (print_received), so a machine that can't show one - a server, an SSH session - loses nothing."""
+    global _popup_warned
+    if no_display():
+        return
     try:
         if IS_WINDOWS:
             # No extra install needed: WinForms' tray-balloon API, part of every .NET-equipped
@@ -137,9 +146,20 @@ def show_notification(title: str, message: str) -> None:
         else:
             subprocess.run(["notify-send", "--", title, message], capture_output=True, timeout=10)
     except FileNotFoundError:
-        warn(f"no notification tool found on this system - here it is instead: {title}: {message}")
+        if not _popup_warned:
+            _popup_warned = True
+            warn("no desktop notification tool found here (notify-send on Linux) - messages only print below")
     except (OSError, subprocess.TimeoutExpired) as exc:
-        warn(f"couldn't show the notification ({exc}) - here it is instead: {title}: {message}")
+        warn(f"couldn't show a popup ({exc}) - the message is printed below")
+
+
+def print_received(sender: str, title: str, message: str) -> None:
+    """A received message as a line in the terminal - on a server, this is the list of what arrived."""
+    head = style(time.strftime("%H:%M:%S"), "dim") + "  " + style(sender, "bold", "accent")
+    if title and title != DEFAULT_TITLE:
+        head += "  " + style(title, "bold")
+    lines = message.splitlines() or [""]
+    print(f"{head}  {lines[0]}" + "".join(f"\n{' ' * 10}{line}" for line in lines[1:]), flush=True)
 
 
 # --- server: kit notify serve -------------------------------------------------------------
@@ -384,9 +404,10 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
         sender = str(body.get("from") or "").strip()[:100]
         if sender and title == DEFAULT_TITLE:
             title = f"{DEFAULT_TITLE} - from {sender}"
+        own_title = str(body.get("title") or "").strip()[:200]
         if self.server.window:
-            self.server.window.received(sender or self.client_address[0], self.client_address[0],
-                                        str(body.get("title") or "").strip()[:200], message)
+            self.server.window.received(sender or self.client_address[0], self.client_address[0], own_title, message)
+        print_received(sender or self.client_address[0], own_title, message)
         # not inline: on Windows, show_notification now blocks until the balloon is clicked or
         # closes on its own (that's what makes clicking it work at all) - up to several seconds,
         # which the sender has no reason to sit through just to get its "delivered" response
@@ -474,17 +495,47 @@ def cmd_send(url: str, message: str, title: str) -> int:
     return 0
 
 
-def cmd_send_lan(message: str, title: str, discovery_port: int, passphrase: str) -> int:
+def find_devices(discovery_port: int, passphrase: str) -> list[dict]:
+    """Every discoverable machine, or a clear exit when there's no passphrase or nobody answers."""
     if not passphrase:
         die("notify.passphrase isn't set, so there's nothing to discover with - set the same value "
             "here and on the other machine: kit config set notify.passphrase <same-value-on-both>")
-    print(style("  looking for kit notify on this network...", "dim"))
+    print(style("  looking for kit notify on this network...", "dim"), flush=True)
     devices = discover_on_lan(discovery_port, passphrase)
     if not devices:
         die("nothing answered. Check: another machine is running 'kit notify serve' or a kit notify window, with the "
             "exact same notify.passphrase - and that its firewall allows it (Windows often blocks "
             "this the first time: see the Firewall section in 'kit help notify' for the exact "
             "commands). Discovery doesn't cross into a tailnet - use the address directly for that.")
+    return devices
+
+
+def pick_devices(devices: list[dict], names: list[str]) -> list[dict]:
+    """The devices named (by hostname, any case, or by address) - every one of them has to be there."""
+    wanted = {name.strip().lower() for name in names if name.strip()}
+    picked = [d for d in devices if d["name"].lower() in wanted or d["ip"] in wanted]
+    missing = wanted - {d["name"].lower() for d in picked} - {d["ip"] for d in picked}
+    if missing:
+        found = ", ".join(sorted(d["name"] for d in devices))
+        die(f"not found on this network: {', '.join(sorted(missing))} - found: {found}")
+    return picked
+
+
+def cmd_devices(discovery_port: int, passphrase: str) -> int:
+    devices = find_devices(discovery_port, passphrase)
+    path = _token_path()
+    own = path.read_text(encoding="utf-8").strip() if path.is_file() else ""
+    width = max(len(d["name"]) for d in devices)
+    for d in sorted(devices, key=lambda d: d["name"].lower()):
+        note = style("  (this machine)", "dim") if d["token"] == own else ""
+        print(f"  {style(d['name'].ljust(width), 'bold', 'accent')}  {d['ip']}:{d['port']}{note}")
+    return 0
+
+
+def cmd_send_lan(message: str, title: str, discovery_port: int, passphrase: str, to: list[str] | None = None) -> int:
+    devices = find_devices(discovery_port, passphrase)
+    if to:
+        devices = pick_devices(devices, to)
     # concurrent, not one after another: a slow or unreachable device would otherwise delay
     # every device after it in the list, so the whole broadcast's time would grow with the
     # number of devices instead of being bounded by the single slowest one
@@ -829,7 +880,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="kit notify",
                                      description="Send a desktop notification to another PC on your LAN or tailnet.")
     parser.epilog = ("With no command, opens a window that lists what's sent and received, and sends to the "
-                     "devices it finds - where there's a desktop to show it on.")
+                     "devices it finds - where there's a desktop to show it on, otherwise it prints this help.")
+    add_ui_flags(parser, ui_help="with no command: open the window, even where kit would print help",
+                 no_ui_help="with no command: print this help instead of opening the window")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
     p = sub.add_parser("serve", help="listen for notifications - run this on the machine that should pop them up")
@@ -845,21 +898,32 @@ def main() -> int:
                         "omit it to broadcast to every discoverable machine on this network instead")
     p.add_argument("message")
     p.add_argument("--title", default="kit notify", help="notification title (default: 'kit notify')")
+    p.add_argument("--to", metavar="NAMES", type=lambda text: text.split(","),
+                   help="with no address: only these machines, by name or address, comma-separated (default: all)")
     p.add_argument("--discovery-port", type=int, default=settings["discovery_port"],
                    help=f"UDP port for LAN discovery, with no address (default {settings['discovery_port']})")
 
+    p = sub.add_parser("devices", help="list the machines discovery finds on this network")
+    p.add_argument("--discovery-port", type=int, default=settings["discovery_port"],
+                   help=f"UDP port for LAN discovery (default {settings['discovery_port']})")
+
     args = parser.parse_args()
     if args.command is None:
-        if no_display():
+        if not want_ui(args.ui):
             parser.print_help()
-            print(style("\nno window here (an SSH session, or no desktop) - use serve and send instead", "dim"))
+            if args.ui is None:
+                print(style(f"\n{why_no_ui()} - use serve, send and devices instead", "dim"))
             return 0
         return cmd_window(settings["port"], settings["discovery_port"], settings["passphrase"])
     if args.command == "serve":
         return cmd_serve(args.port, args.rotate, args.discovery_port, settings["passphrase"])
+    if args.command == "devices":
+        return cmd_devices(args.discovery_port, settings["passphrase"])
     if args.url:
+        if args.to:
+            die("--to picks machines found on this network - leave out the address to use it")
         return cmd_send(args.url, args.message, args.title)
-    return cmd_send_lan(args.message, args.title, args.discovery_port, settings["passphrase"])
+    return cmd_send_lan(args.message, args.title, args.discovery_port, settings["passphrase"], args.to)
 
 
 if __name__ == "__main__":

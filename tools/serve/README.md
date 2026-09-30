@@ -5,8 +5,8 @@ Share a folder, or an app running on this computer, with other devices on your n
 ## Usage
 
 ```
-kit serve [folder] [-p PORT] [--host HOST] [--no-qr] [--window]
-kit serve --app PORT [-p PORT] [--host HOST] [--no-qr] [--window]
+kit serve [folder] [-p PORT] [--host HOST] [--no-qr] [--ui | --no-ui]
+kit serve --app PORT [-p PORT] [--host HOST] [--no-qr] [--ui | --no-ui]
 ```
 
 - `kit serve [folder]` shares a folder (default: the current one) over HTTP, with directory listings.
@@ -16,8 +16,11 @@ kit serve --app PORT [-p PORT] [--host HOST] [--no-qr] [--window]
 - Listens on every network interface (`0.0.0.0`) so phones and other computers on the same Wi-Fi can connect.
   `--host 127.0.0.1` keeps it private to this computer.
 - Prints the local URL, the network URL(s) and a QR code of the main network URL; `--no-qr` hides the code.
-- `--window` also opens the page in its own app window (Edge, Chrome or Chromium `--app` mode: no tabs, no address bar).
-  Without one of those browsers it opens a normal browser tab.
+- `--ui` also opens the page in its own app window (Edge, Chrome or Chromium `--app` mode: no tabs, no address bar).
+  Without one of those browsers it opens a normal browser tab. `serve.window` turns that on every time; `--no-ui`
+  turns it off for one run. The older `--window` / `--no-window` mean the same.
+- In an SSH session, or on Linux with no desktop, serve never opens a window by itself - even with `serve.window`
+  on, it says it's skipping it. Everything else works the same, so a server can share a folder too.
 - Ctrl+C stops it.
 
 ### Firewall
@@ -38,7 +41,7 @@ webpack-dev-server: `allowedHosts: 'all'`, Django: add the network IP to `ALLOWE
 |---|---|---|
 | `serve.port` | `8000` | Port to try first; the next free one is used if it's taken. `-p` asks for exactly one port. |
 | `serve.host` | `0.0.0.0` | Address to listen on. `127.0.0.1` keeps everything private to this computer. |
-| `serve.window` | `false` | Also open the page in an app window (`--window` / `--no-window`) |
+| `serve.window` | `false` | Also open the page in an app window, where there's a display (`--ui` / `--no-ui`) |
 
 ```
 kit config set serve.host 127.0.0.1
@@ -50,6 +53,6 @@ kit config set serve.host 127.0.0.1
 kit serve                          # share the current folder
 kit serve D:\photos -p 9000        # share a folder on port 9000
 kit serve --app 3000               # put a local dev server on your Wi-Fi
-kit serve --app 5173 --window      # ...and open it in an app window
+kit serve --app 5173 --ui          # ...and open it in an app window
 kit serve . --host 127.0.0.1       # this computer only
 ```

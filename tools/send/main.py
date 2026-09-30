@@ -30,9 +30,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from kitlib import die, style, theme
-from kitlib.browser import no_display, open_app_window
+from kitlib.browser import open_app_window
 from kitlib.qr import make_qr, qr_lines
 from kitlib.settings import tool_settings
+from kitlib.ui import add_ui_flags, want_ui, why_no_ui
 from kitlib.webserver import KitHandler
 
 from tunnel import Tunnel, TunnelError, download_cloudflared, find_cloudflared, ssl_context
@@ -1172,11 +1173,11 @@ def main() -> int:
                         help="with --public: the name or address to put in links (default: looked up)")
     parser.add_argument("--port", type=int, help=f"port the links use on the LAN or with --public "
                                                  f"(setting: send.port, default {DEFAULT_PORT})")
-    parser.add_argument("--headless", action="store_true",
-                        help="no window, just the terminal (automatic over SSH or without a display)")
-    parser.add_argument("--no-open", dest="open", action="store_false", help="don't open the sharing window")
-    parser.add_argument("--open", dest="open", action="store_true",
-                        help="open the sharing window, even where kit would pick the terminal")
+    add_ui_flags(parser, ui_help="use the sharing window, even where kit would pick the terminal",
+                 no_ui_help="terminal only, no sharing window (automatic over SSH or without a display)",
+                 ui_aliases=("--open",), no_ui_aliases=("--headless",))
+    parser.add_argument("--no-open", dest="open", action="store_false",
+                        help="run the sharing window but don't open it: its address is printed (e.g. for an SSH tunnel)")
     parser.add_argument("--no-qr", dest="qr", action="store_false", help="don't print QR codes of the links")
     parser.add_argument("--window", dest="window", action="store_true", help="open in an app window (setting: send.window)")
     parser.add_argument("--no-window", dest="window", action="store_false", help="open in a normal browser tab")
@@ -1200,9 +1201,10 @@ def main() -> int:
     except (ValueError, ApiError) as exc:
         die(str(exc))
 
-    headless = args.headless or (args.open is None and no_display())
+    # --no-open on its own still runs the window (just unopened), which is useful through an SSH tunnel
+    headless = not (want_ui(args.ui) or (args.ui is None and args.open is False))
     if headless and not args.files:
-        die("there's no window here" + ("" if args.headless else " (this looks like an SSH session, or no display)")
+        die("there's no window here" + ("" if args.ui is False else f" ({why_no_ui()})")
             + ", so name the files to share: kit send FILE [FILE...]")
 
     mode = "internet" if args.public else (args.mode or conf.get("mode", "lan"))

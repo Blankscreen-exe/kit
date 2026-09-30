@@ -260,6 +260,11 @@ takes them from there:
 Things you type or pick - file names, pad text, process names - keep their case; only kit's own labels
 are uppercase.
 
+A tool with a window and a terminal side uses `kitlib.ui`: `add_ui_flags(parser)` gives it `--ui` /
+`--no-ui`, and `want_ui(args.ui)` says whether to show the window - only where there's a display (not
+in an SSH session or on Linux without a desktop), unless a flag says otherwise. The same job has to
+work from the terminal either way.
+
 ### Python packages
 
 The repo is a single uv project, and every Python tool runs in its one environment. If a tool needs a package,
@@ -329,7 +334,7 @@ are picked up exactly like `tools/`. This is handy for private or work-only tool
 ```text
 kit.py            entry point
 core/             registry (finds tools), runner, CLI, `kit new` templates, `kit config`, `kit update`, hub/, `kit share`
-lib/kitlib/       helpers Python tools can import (output, theme, settings, figlet, QR codes, browser, clipboard, web server, Textual)
+lib/kitlib/       helpers Python tools can import (output, theme, window-or-terminal, settings, figlet, QR codes, browser, clipboard, web server, Textual)
 tools/            one folder per tool
 vendor/           bundled third-party binaries (figlet for Windows)
 bin/              launchers: kit.ps1 (PowerShell), kit.cmd (cmd), kit (sh)
