@@ -5,13 +5,16 @@ Send a desktop notification to another PC on your LAN or tailnet.
 ## Usage
 
 ```
-kit notify serve [--lan] [--port N] [--rotate] [--discovery-port N]
+kit notify
+kit notify serve [--port N] [--rotate] [--discovery-port N]
 kit notify send [<url>] "message" [--title TEXT] [--discovery-port N]
 ```
 
+- `kit notify` on its own opens a window (see below). Where there's no desktop to show one on - an
+  SSH session, or Linux without a display - it prints this help instead.
 - `kit notify serve` listens for notifications and pops them up on this machine. It prints its own
   address, ending in `?t=...` - that's what the other machine sends to.
-  Local-only by default; `--lan` also binds this network **and** makes it discoverable (see below).
+  It's always reachable on this network, and discoverable too once a passphrase is set (see below).
 - `kit notify send <url> "message"` sends one, where `<url>` is exactly what `serve` printed on the
   other machine.
 - `kit notify send "message"` - **no address** - finds every discoverable machine on this network
@@ -19,6 +22,22 @@ kit notify send [<url>] "message" [--title TEXT] [--discovery-port N]
 - Run `serve` on every machine you want to be able to notify, and `send` from any of them.
 - The token stays the same across restarts (kept on disk, not made fresh every time), so save the
   address once and it keeps working. `--rotate` deliberately replaces it - do that if it ever leaks.
+
+### The window
+
+`kit notify` does what `serve` does - listens on this network, pops up what arrives - and also opens
+a small window (an app window in Edge/Chrome/Chromium, or a browser tab without one) with:
+
+- a scrollable list of everything received (who from, when) and sent (to whom, with a ✓ or ✗ per
+  device - hover a ✗ for why it didn't arrive);
+- a message box, and a **To** checklist of the devices discovery finds: *All devices*, or any mix of
+  them. It looks again every 30 seconds by itself, or straight away with *Look again*; a machine that
+  stops answering drops off.
+
+The list lives only as long as the window: closing it stops kit notify and forgets the list, and
+Ctrl+C in the terminal does the same. Only one of `serve` or the window can run on a machine at a
+time - the second one refuses to start. The device list needs `notify.passphrase` set (below);
+without it the window still receives, but has nobody to send to.
 
 ### LAN discovery
 
@@ -28,7 +47,7 @@ Set the same passphrase on every machine that should find each other - once, eve
 kit config set notify.passphrase <make one up, same value on every machine>
 ```
 
-With that set, `--lan` means two things: reachable on this network, and *discoverable* on it -
+With that set, a running `serve` or window is *discoverable* on this network -
 `kit notify send` with no address broadcasts a signed "who's out there" query over UDP
 (`notify.discovery_port`, default 8898), and a machine only answers if it can prove it knows the
 same passphrase (an HMAC over a timestamp - the passphrase itself is never sent, only proof of it,
@@ -36,8 +55,8 @@ and a stale or reused proof past 30 seconds is rejected). Get the passphrase wro
 one, and you get silence - not an error, so there's no way to tell "wrong passphrase" from
 "nothing's listening" by probing.
 
-Without a passphrase set, `--lan` still makes the machine directly reachable at its printed
-address, same as always - it just isn't discoverable, and `serve` says so.
+Without a passphrase set, the machine is still directly reachable at its printed address - it
+just isn't discoverable, and `serve` says so.
 
 ### Reaching a machine that isn't on the same LAN
 
@@ -53,7 +72,7 @@ Send it the address that prints (not discovery - that's LAN-only), from the othe
 
 ### Firewall
 
-The first time `kit notify serve --lan` runs, Windows Firewall may ask whether Python may accept
+The first time `kit notify` or `kit notify serve` runs, Windows Firewall may ask whether Python may accept
 connections, or simply block it silently if that prompt gets missed or dismissed. If another
 machine can't find or reach you: allow Python on **Private networks** under *Windows Security >
 Firewall & network protection > Allow an app through firewall*, or add rules directly (PowerShell,
@@ -72,7 +91,8 @@ On Linux with ufw: `sudo ufw allow 8899/tcp` and `sudo ufw allow 8898/udp`.
 
 ```
 kit config set notify.passphrase house-of-blue-lights          # once, same value everywhere
-kit notify serve --lan                                        # on the receiving PC
+kit notify                                                    # the window: send and receive
+kit notify serve                                              # or just receive, from a terminal
 kit notify send "build's done"                                # finds it automatically, same LAN
 kit notify send http://192.168.1.28:8899/?t=AbCd1234 "build's done"  # or, a specific address
 kit share start notify --tailscale -- serve                    # across your tailnet instead
@@ -91,7 +111,12 @@ kit share start notify --tailscale -- serve                    # across your tai
 - Linux uses `notify-send` (part of most desktops' notification daemon). macOS uses `osascript`.
   Windows uses a WinForms tray balloon, needing nothing extra installed. If none of those work,
   the message is printed instead.
-- There's no address book: you always pass the exact address `serve` printed.
+- There's no address book: from the command line you always pass the exact address `serve`
+  printed, or let discovery find everyone.
+- Each message carries the sender's hostname, so the popup reads "kit notify - from laptop-b" (when
+  no `--title` was given) and the window lists who it came from. Messages from an older kit notify
+  show the sender's IP address instead.
+- `--lan` on `serve` is still accepted but does nothing - listening on the network is always on now.
 - `serve` confirms delivery as soon as it's received a message, not once it's been shown or
   clicked - showing it (especially the clickable Windows balloon, which waits for that click)
   happens in the background, so a slow or unattended notification on one machine never holds up

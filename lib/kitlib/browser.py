@@ -35,6 +35,15 @@ def _platform() -> str:
     return "macos" if sys.platform == "darwin" else "linux"
 
 
+def no_display() -> bool:
+    """True when a window can't be shown here: an SSH session, or Linux without a desktop."""
+    if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
+        return True
+    if _platform() != "linux":
+        return False
+    return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
 def configured_browser() -> str:
     """The [kit] browser setting ($KIT_BROWSER wins over the settings file); "" when not set."""
     try:

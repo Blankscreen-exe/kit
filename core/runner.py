@@ -60,7 +60,9 @@ def tool_env(tool: Tool) -> dict[str, str]:
 def run(tool: Tool, args: list[str]) -> int:
     command = build_command(tool, args)
     env = tool_env(tool)
-    if tool.web and _notify_direct_runs_enabled():
+    # not notify itself: its first line is its own LAN address, and announcing that over notify
+    # would pop up on every discoverable machine each time it starts - discovery finds it anyway
+    if tool.web and tool.name != "notify" and _notify_direct_runs_enabled():
         return _run_and_watch(tool, command, env)
     try:
         return subprocess.call(command, env=env)
