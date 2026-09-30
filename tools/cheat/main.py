@@ -170,7 +170,7 @@ def print_topics() -> int:
     print(style("TOPICS", "bold"))
     for topic in TOPICS:
         names = ", ".join(topic.names)
-        print(f"  {style(topic.key.ljust(5), 'cyan')} {topic.title.ljust(14)} {style(names, 'dim')}")
+        print(f"  {style(topic.key.ljust(5), 'accent')} {topic.title.ljust(14)} {style(names, 'dim')}")
         print(f"        ss64  {index_url(topic, 'ss64')}")
     print(f"\n  tldr pages (all topics): {TLDR}/")
     return 0
@@ -222,7 +222,7 @@ def main() -> int:
         return 0
     if open_url(url, window):
         label = f"{topic.title} {command}".strip() if command else f"{topic.title} cheatsheet"
-        print(f"{style('opened', 'bold', 'green')} {label}: {url}")
+        print(f"{style('opened', 'bold', 'good')} {label}: {url}")
     else:
         print(f"no browser available here - open this link: {url}")
     return 0

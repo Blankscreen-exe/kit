@@ -9,6 +9,7 @@ from datetime import datetime
 import psutil
 
 from kitlib import KIT_HOME, die
+from kitlib.theme import ACCENT, BAD, DIM, EDGE, GOOD, MUTED, TEXT
 from kitlib.clipboard import copy_to_clipboard
 
 try:
@@ -20,6 +21,8 @@ try:
     from textual.coordinate import Coordinate
     from textual.screen import ModalScreen
     from textual.widgets import Button, DataTable, Footer, Input, Static, TabbedContent, TabPane
+
+    from kitlib.tui import KitApp, brand, title
 except ImportError as exc:
     die(f"missing Python package '{exc.name}' - run 'uv sync' in {KIT_HOME} (or re-run the installer)")
 
@@ -27,11 +30,7 @@ from top_rules import WINDOWS_SYSTEM_NAMES, level_for, total_score
 from top_scan import (IS_WINDOWS, AutoRow, Engine, ProcRow, Snapshot, TrustStore, data_path, elevation_hint,
                       file_info, open_folder, virustotal_url)
 
-ACCENT = "#d97757"
-TEXT = "#e8e3dc"
-MUTED = "#8a847c"
-DIM = "#4a4642"
-LEVEL_COLORS = {"high": "#e5534b", "medium": "#e0a44a", "low": "#7c9fd4", "ok": "#5f5a54"}
+LEVEL_COLORS = {"high": BAD, "medium": ACCENT, "low": EDGE, "ok": DIM}
 LEVEL_ORDER = {"high": 0, "medium": 1, "low": 2, "ok": 3}
 SORTS = {"score": "risk", "cpu": "CPU", "mem": "memory", "name": "name"}
 CRITICAL = set(WINDOWS_SYSTEM_NAMES) | {"system", "registry", "memcompression", "init", "systemd", "kthreadd"}
@@ -39,7 +38,7 @@ CRITICAL = set(WINDOWS_SYSTEM_NAMES) | {"system", "registry", "memcompression", 
 
 def badge(level: str, trusted: bool = False) -> Text:
     if trusted:
-        return Text("✓ trusted", style="#7fb09b")
+        return Text("✓ trusted", style=GOOD)
     label = {"high": "● HIGH", "medium": "● MED", "low": "● LOW", "ok": "· ok"}[level]
     return Text(label, style=f"bold {LEVEL_COLORS[level]}" if level != "ok" else LEVEL_COLORS[level])
 
@@ -61,54 +60,21 @@ def when(timestamp: float | None) -> str:
 
 
 CSS = f"""
-Screen {{ background: #1a1918; color: {TEXT}; }}
 #topbar {{ height: 1; padding: 0 1; }}
 #brand {{ width: auto; }}
 #summary {{ width: 1fr; content-align: right middle; }}
 TabbedContent {{ height: 1fr; }}
-Tabs {{ background: #1a1918; }}
-Tab {{ color: {MUTED}; }}
-Tab.-active {{ color: {ACCENT}; text-style: bold; }}
-Tab:hover {{ color: {TEXT}; }}
-Underline > .underline--bar {{ color: {ACCENT}; background: #2e2b28; }}
 TabPane {{ padding: 0; }}
-DataTable {{
-    background: #1a1918; height: 1fr; scrollbar-size-vertical: 1; scrollbar-size-horizontal: 1;
-    scrollbar-background: #1a1918; scrollbar-background-hover: #1a1918; scrollbar-background-active: #1a1918;
-    scrollbar-color: #3d3935; scrollbar-color-hover: {MUTED}; scrollbar-color-active: {ACCENT}; scrollbar-corner-color: #1a1918;
-}}
-DataTable > .datatable--header {{ background: #1a1918; color: {MUTED}; text-style: bold; }}
-DataTable > .datatable--cursor {{ background: #3d3935; color: #ffffff; }}
-DataTable:focus > .datatable--cursor {{ background: #4a3a32; }}
-DataTable > .datatable--hover {{ background: #262422; }}
-DataTable > .datatable--even-row, DataTable > .datatable--odd-row {{ background: #1a1918; }}
-#filter {{ display: none; border: round #3d3935; background: #1a1918; padding: 0 1; height: 3; }}
+DataTable {{ height: 1fr; scrollbar-size-vertical: 1; scrollbar-size-horizontal: 1; }}
+#filter {{ display: none; height: 3; }}
 #filter.-shown {{ display: block; }}
-#filter:focus {{ border: round {ACCENT}; background: #1a1918; }}
-#why {{ height: 3; border-top: solid #3d3935; padding: 0 1; color: {MUTED}; }}
-Footer {{ background: #1a1918; color: {MUTED}; }}
-Footer FooterKey {{ background: #1a1918; }}
-Footer FooterKey .footer-key--key {{ background: #1a1918; color: {ACCENT}; text-style: bold; }}
-Footer FooterKey .footer-key--description {{ color: {MUTED}; }}
-Footer FooterKey:hover {{ background: #262422; }}
+#why {{ height: 3; border-top: heavy {EDGE}; padding: 0 1; color: {MUTED}; }}
 
-ModalScreen {{ align: center middle; background: rgba(0, 0, 0, 0.6); }}
-.dialog {{
-    width: 100; max-width: 95%; height: auto; max-height: 90%;
-    border: round {ACCENT}; border-title-color: {ACCENT}; border-title-style: bold;
-    border-subtitle-color: {MUTED}; background: #211f1d; padding: 1 2;
-}}
+.dialog {{ width: 100; max-width: 95%; height: auto; max-height: 90%; }}
 .dialog VerticalScroll {{ height: auto; max-height: 30; }}
 .hint {{ color: {MUTED}; margin-top: 1; }}
 .buttons {{ width: 100%; height: 3; align: right middle; margin-top: 1; }}
-Button {{
-    min-width: 8; width: auto; height: 3; margin: 0 0 0 1; padding: 0 1;
-    border: round #3d3935; background: #211f1d; color: {TEXT}; text-style: none;
-}}
-Button:hover {{ background: #211f1d; border: round {MUTED}; color: #ffffff; text-style: none; }}
-Button:focus {{ text-style: bold; border: round {MUTED}; }}
-Button.danger {{ border: round #e5534b; color: #e5534b; }}
-Button.primary {{ border: round {ACCENT}; color: {ACCENT}; }}
+.buttons Button {{ margin: 0 0 0 1; }}
 """
 
 HELP = f"""[b]What the levels mean[/b]
@@ -144,11 +110,11 @@ class ConfirmScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="dialog") as dialog:
-            dialog.border_title = f" {self.title_text} "
+            dialog.border_title = title(self.title_text)
             yield Static(self.body)
             with Horizontal(classes="buttons"):
-                yield Button("Cancel (n)", id="cancel")
-                yield Button(f"{self.ok_label} (y)", id="ok", classes="danger" if self.danger else "primary")
+                yield Button("CANCEL (N)", id="cancel")
+                yield Button(f"{self.ok_label.upper()} (Y)", id="ok", classes="danger" if self.danger else "primary")
 
     def on_mount(self) -> None:
         self.query_one("#cancel", Button).focus()
@@ -184,7 +150,7 @@ class InfoScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="dialog") as dialog:
-            dialog.border_title = f" {self.title_text} "
+            dialog.border_title = title(self.title_text)
             with VerticalScroll():
                 yield Static(self.body, id="info-body")
             if self.item is not None:
@@ -201,7 +167,7 @@ class InfoScreen(ModalScreen[None]):
 
 # --- app -------------------------------------------------------------------------------------
 
-class TopApp(App):
+class TopApp(KitApp):
     TITLE = "kit top"
     CSS = CSS
     ENABLE_COMMAND_PALETTE = False
@@ -247,26 +213,26 @@ class TopApp(App):
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="topbar"):
-            yield Static(Text.assemble(("✻ ", f"bold {ACCENT}"), ("kit top", f"bold {TEXT}")), id="brand")
+            yield Static(brand("kit top"), id="brand")
             yield Static("", id="summary")
         with TabbedContent(id="tabs", initial="procs"):
-            with TabPane("Processes", id="procs"):
+            with TabPane("PROCESSES", id="procs"):
                 yield Input(placeholder="filter by name, path, PID, user or reason - enter to keep, esc to clear",
                             id="filter")
                 yield DataTable(id="proc-table", cursor_type="row", zebra_stripes=False)
-            with TabPane("Network", id="net"):
+            with TabPane("NETWORK", id="net"):
                 yield DataTable(id="net-table", cursor_type="row")
-            with TabPane("Autostart", id="auto"):
+            with TabPane("AUTOSTART", id="auto"):
                 yield DataTable(id="auto-table", cursor_type="row")
         yield Static("", id="why")
         yield Footer()
 
     def on_mount(self) -> None:
         self.query_one("#proc-table", DataTable).add_columns(
-            "Risk", "PID", "Name", "CPU%", "Memory", "User", "Net", "Why", "Path")
+            "RISK", "PID", "NAME", "CPU%", "MEMORY", "USER", "NET", "WHY", "PATH")
         self.query_one("#net-table", DataTable).add_columns(
-            "Risk", "PID", "Name", "Proto", "Local", "Remote", "State", "Note")
-        self.query_one("#auto-table", DataTable).add_columns("Risk", "Kind", "Name", "Command", "Location", "Why")
+            "RISK", "PID", "NAME", "PROTO", "LOCAL", "REMOTE", "STATE", "NOTE")
+        self.query_one("#auto-table", DataTable).add_columns("RISK", "KIND", "NAME", "COMMAND", "LOCATION", "WHY")
         self.engine.prime()
         self.update_summary()
         self.request_snapshot()
@@ -415,7 +381,7 @@ class TopApp(App):
                     Text(c.status.lower(), style=MUTED), Text(note, style=MUTED),
                 )))
         self._refill(table, rows)
-        self.query_one("#tabs", TabbedContent).get_tab("net").label = f"Network ({len(rows)})"
+        self.query_one("#tabs", TabbedContent).get_tab("net").label = f"NETWORK ({len(rows)})"
 
     def fill_autostart(self) -> None:
         table = self.query_one("#auto-table", DataTable)
@@ -423,7 +389,7 @@ class TopApp(App):
         if self.auto_rows is None:
             table.clear()
             table.add_row(Text("…", style=MUTED), "", Text("checking autostart entries (this takes a few seconds)", style=MUTED))
-            tab.label = "Autostart (…)"
+            tab.label = "AUTOSTART (…)"
             return
         rows = []
         if self.auto_error:
@@ -440,9 +406,9 @@ class TopApp(App):
             )))
         self._refill(table, rows)
         flagged = sum(1 for r in self.auto_rows if r.level != "ok")
-        tab.label = f"Autostart ({flagged} flagged)" if flagged else f"Autostart ({len(self.auto_rows)})"
+        tab.label = f"AUTOSTART ({flagged} FLAGGED)" if flagged else f"AUTOSTART ({len(self.auto_rows)})"
         if self._auto_busy:
-            tab.label = "Autostart (…)"
+            tab.label = "AUTOSTART (…)"
 
     def update_summary(self) -> None:
         summary = Text()
@@ -484,7 +450,7 @@ class TopApp(App):
             self.query_one("#why", Static).update("")
             return
         if getattr(item, "trusted", False):
-            text.append("trusted by you - ", style="#7fb09b")
+            text.append("trusted by you - ", style=GOOD)
         if flags:
             text.append("; ".join(f.reason for f in flags), style=LEVEL_COLORS[level] if level != "ok" else MUTED)
         else:
@@ -675,7 +641,7 @@ class TopApp(App):
                               + (" · hidden" if info.hidden else ""))
                 if IS_WINDOWS:
                     sig = self.engine.files.signature(path, info, wait=False)
-                    sig_style = {"trusted": "#7fb09b", "invalid": LEVEL_COLORS["high"],
+                    sig_style = {"trusted": GOOD, "invalid": LEVEL_COLORS["high"],
                                  "untrusted": LEVEL_COLORS["medium"]}.get(sig.status if sig else "", TEXT)
                     field("signature", sig.label if sig else "checking…", sig_style)
                 field("SHA-256", sha or ("computing…" if hashing else "?"))
@@ -684,7 +650,7 @@ class TopApp(App):
 
         text.append("\nWhy it's flagged\n", style=f"bold {TEXT}")
         if trusted:
-            text.append("  you marked this exact file as trusted (t to undo)\n", style="#7fb09b")
+            text.append("  you marked this exact file as trusted (t to undo)\n", style=GOOD)
         for flag in flags:
             text.append(f"  +{flag.weight:<3}", style=MUTED)
             text.append(f"{flag.reason}\n", style=LEVEL_COLORS[level_for(flag.weight * 2)] if flag.weight >= 5 else TEXT)

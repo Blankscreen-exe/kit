@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from kitlib import die, style, warn
+from kitlib import die, style, theme, warn
 from kitlib.webserver import KitHandler
 from kitlib.settings import tool_settings
 
@@ -38,11 +38,17 @@ ACTIONS = {
     "remove": ["rm"],
 }
 
-UNAUTHORIZED_PAGE = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>docker-view</title></head>
-<body style="font:15px system-ui,sans-serif;max-width:560px;margin:80px auto;padding:0 20px">
-<h1 style="font-size:20px">docker-view needs its access token</h1>
-<p>Open the full address printed in the terminal where you ran <code>kit docker-view</code>
-(it ends in <code>?token=...</code>).</p></body></html>"""
+UNAUTHORIZED_PAGE = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>docker-view</title>
+<!--kit-theme-->
+<style>
+body { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.slab { max-width: 480px; padding: 22px 24px; }
+</style></head>
+<body><div class="slab">
+<h1><span class="mark">■</span>docker-view</h1>
+<p>This page needs its access token. Open the full address printed in the terminal where you ran
+<code>kit docker-view</code> (it ends in <code>?token=...</code>).</p>
+</div></body></html>"""
 
 
 # --- docker CLI -------------------------------------------------------------------
@@ -382,8 +388,8 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
                 cookie = f"{self.server.cookie_name}={self.server.token}; HttpOnly; SameSite=Strict; Path=/"
                 return self.send_body(HTTPStatus.SEE_OTHER, b"", "text/plain", {"Location": "/", "Set-Cookie": cookie})
             if not self.authorized():
-                return self.send_page(HTTPStatus.UNAUTHORIZED, UNAUTHORIZED_PAGE)
-            return self.send_page(HTTPStatus.OK, PAGE.read_text(encoding="utf-8"))
+                return self.send_page(HTTPStatus.UNAUTHORIZED, theme.inject(UNAUTHORIZED_PAGE))
+            return self.send_page(HTTPStatus.OK, theme.inject(PAGE.read_text(encoding="utf-8")))
 
         if url.path == "/favicon.ico":
             return self.send_body(HTTPStatus.NO_CONTENT, b"", "image/x-icon")
@@ -435,9 +441,9 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
         try:
             result = run_action(body.get("action"), body.get("container"))
         except DockerError as exc:
-            log(f"{style('failed', 'red')}  {body.get('action')} {body.get('container')}: {exc}")
+            log(f"{style('failed', 'bad')}  {body.get('action')} {body.get('container')}: {exc}")
             return self.send_error_json(exc.status, str(exc))
-        log(f"{style('ran', 'green')}     {result['command']}")
+        log(f"{style('ran', 'good')}     {result['command']}")
         self.send_json(HTTPStatus.OK, result)
 
 
@@ -476,7 +482,7 @@ def main() -> int:
     token = secrets.token_urlsafe(24)
     server = start_server(args.port or conf.get("port", DEFAULT_PORT), args.port is not None, token)
     url = f"http://127.0.0.1:{server.server_address[1]}/?token={token}"
-    print(f"{style('docker-view', 'bold', 'cyan')}  {engine}")
+    print(f"{style('docker-view', 'bold', 'accent')}  {engine}")
     print(f"  open  {style(url, 'bold')}")
     print(style("  only reachable from this computer - press Ctrl+C to stop", "dim"), flush=True)
     if args.open:

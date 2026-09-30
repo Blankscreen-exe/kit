@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from kitlib import KIT_HOME, color_enabled, die
+from kitlib import KIT_HOME, color_enabled, die, theme
 from kitlib.figlet import FigletError, render_figlet
 from kitlib.settings import tool_settings
 
@@ -34,6 +34,7 @@ GIB = 1024 ** 3
 COLORS = {
     "black": "30", "red": "91", "green": "92", "yellow": "93", "blue": "94",
     "magenta": "95", "cyan": "96", "white": "97", "gray": "90",
+    "concrete": "38;2;{};{};{}".format(*theme.ACCENT_RGB),  # kit's own yellow, the default
 }
 TOKEN_RE = re.compile(r"\{(" + "|".join([*COLORS, "accent", "bold", "reset"]) + r")\}")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -508,7 +509,7 @@ def main() -> int:
                         help="art name from the art/ folder, or a path to a text file (setting: fetch.art)")
     parser.add_argument("--figlet", metavar="TEXT", help="use a figlet banner of TEXT as the art instead")
     parser.add_argument("-f", "--font", default="standard", help="figlet font for --figlet (default: standard)")
-    parser.add_argument("--color", default=conf.get("color", "cyan"), choices=sorted(COLORS),
+    parser.add_argument("--color", default=conf.get("color", "concrete"), choices=sorted(COLORS),
                         help="colour of labels and plain art (setting: fetch.color, default: cyan)")
     parser.add_argument("--stack", action="store_true", help="always put the art above the info (setting: fetch.stack)")
     parser.add_argument("--no-stack", dest="stack", action="store_false", help="put the art beside the info when there's room")

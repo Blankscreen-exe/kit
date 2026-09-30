@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 
 from kitlib import KIT_HOME, die, style
 from kitlib.settings import tool_settings
+from kitlib.theme import ACCENT, BAD, DIM, EDGE, MUTED, TEXT
 
 try:
     from rich.text import Text
@@ -22,16 +23,14 @@ try:
     from textual.binding import Binding
     from textual.containers import Center, Horizontal, Vertical
     from textual.screen import ModalScreen
-    from textual.widgets import Button, Digits, Footer, Input, Label, ProgressBar, Static
+    from textual.widgets import Button, Footer, Input, Label, ProgressBar, Static
+
+    from kitlib.tui import BigDigits, KitApp, brand, title
 except ImportError as exc:
     die(f"missing Python package '{exc.name}' - run 'uv sync' in {KIT_HOME} (or re-run the installer)")
 
 MAX_SECONDS = 99 * 3600
 ALERT_EVERY = 5.0
-ACCENT = "#d97757"
-TEXT = "#e8e3dc"
-MUTED = "#8a847c"
-DIM = "#4a4642"
 
 
 # --- parsing -------------------------------------------------------------------------
@@ -218,7 +217,7 @@ def run_plain(seconds: float, message: str, notify: bool, speed: float) -> int:
             if tty:
                 width = 24
                 filled = round((1 - remaining / seconds) * width)
-                line = f"{style(format_clock(remaining), 'bold')}  {style(full * filled, 'yellow')}{style(empty * (width - filled), 'dim')}{label}"
+                line = f"{style(format_clock(remaining), 'bold')}  {style(full * filled, 'accent')}{style(empty * (width - filled), 'dim')}{label}"
                 if line != last:
                     sys.stdout.write(f"\r{line}\x1b[K")
                     sys.stdout.flush()
@@ -232,7 +231,7 @@ def run_plain(seconds: float, message: str, notify: bool, speed: float) -> int:
         print("cancelled", flush=True)
         return 130
 
-    done = style("time's up", "bold", "yellow") + (f" - {message}" if message else "")
+    done = style("time's up", "bold", "accent") + (f" - {message}" if message else "")
     if tty:
         sys.stdout.write(f"\r{done}\x1b[K\n\a")
     else:
@@ -245,101 +244,42 @@ def run_plain(seconds: float, message: str, notify: bool, speed: float) -> int:
 
 # --- TUI ----------------------------------------------------------------------------------------
 
-CSS = """
-Screen {
-    background: #1a1918;
-    color: #e8e3dc;
-    align: center middle;
-}
+CSS = f"""
+Screen {{ align: center middle; }}
 
-#topbar { width: 72; max-width: 100%; height: 1; margin-bottom: 1; padding: 0 1; }
-#brand { width: 1fr; }
-#ends { width: auto; }
+#topbar {{ width: 72; max-width: 100%; height: 1; margin-bottom: 1; }}
+#brand {{ width: 1fr; }}
+#ends {{ width: auto; }}
 
-#card {
-    width: 72;
-    max-width: 100%;
-    height: auto;
-    border: round #3d3935;
-    border-title-color: #d97757;
-    border-title-style: bold;
-    border-subtitle-color: #6b655e;
-    background: #1a1918;
-    padding: 1 2 0 2;
-}
-#status { width: 100%; height: 1; content-align: center middle; color: #d97757; text-style: bold; }
-#clock { width: auto; color: #f5f0e8; margin: 1 0 1 0; }
-#message { width: 100%; height: auto; content-align: center middle; text-align: center; color: #e8e3dc; margin-bottom: 1; }
-#progress { width: auto; height: 1; margin-bottom: 1; }
-#progress Bar { width: 50; }
-#progress Bar > .bar--bar { color: #d97757; background: #2e2b28; }
-#progress Bar > .bar--complete { color: #d97757; }
-#progress PercentageStatus { color: #8a847c; }
+#card {{ width: 72; max-width: 100%; height: auto; padding: 1 2 0 2; }}
+#status {{ width: 100%; height: 1; content-align: center middle; color: {ACCENT}; text-style: bold; }}
+#clock {{ color: {TEXT}; margin: 1 0 1 0; }}
+#message {{ width: 100%; height: auto; content-align: center middle; text-align: center; margin-bottom: 1; }}
+#progress {{ width: auto; height: 1; margin-bottom: 1; }}
+#progress Bar {{ width: 50; }}
 
-#controls { width: 100%; height: 3; align: center middle; margin-bottom: 1; }
-Button {
-    min-width: 7;
-    width: auto;
-    height: 3;
-    margin: 0 1 0 0;
-    padding: 0;
-    border: round #3d3935;
-    background: #1a1918;
-    color: #e8e3dc;
-    text-style: none;
-}
-Button:hover { background: #1a1918; border: round #8a847c; color: #ffffff; text-style: none; }
-Button.-active { background: #262422; border: round #8a847c; }
-Button:focus { text-style: none; }
-#toggle { width: 13; }
-#quit { margin: 0; }
-Button.primary { border: round #d97757; color: #d97757; text-style: bold; }
-Button.primary:hover { border: round #f0a07e; color: #f0a07e; text-style: bold; }
+#controls {{ width: 100%; height: 3; align: center middle; margin-bottom: 1; }}
+#controls Button {{ margin: 0 1 0 0; }}
+#toggle {{ width: 14; }}
+#quit {{ margin: 0; }}
 
-.-paused #clock { color: #8a847c; }
-.-paused #status { color: #8a847c; }
-.-paused #progress Bar > .bar--bar { color: #6b655e; }
+.-paused #clock, .-paused #status {{ color: {MUTED}; }}
+.-paused #progress Bar > .bar--bar {{ color: {DIM}; }}
+.-done #card {{ border: heavy {ACCENT}; }}
+.-done #clock {{ color: {ACCENT}; }}
+.-flash #clock {{ color: {EDGE}; }}
+.-flash #controls Button {{ border: heavy {ACCENT}; }}
 
-.-done #card { border: round #d97757; }
-.-done #clock { color: #d97757; }
-.-done #progress Bar > .bar--bar, .-done #progress Bar > .bar--complete { color: #d97757; }
-.-flash #card { border: heavy #f0a07e; background: #2b1f19; }
-.-flash #clock { color: #ffb38f; }
-.-flash #status { color: #ffb38f; }
-.-flash #message, .-flash #progress, .-flash Button { background: #2b1f19; }
-
-Footer { background: #1a1918; color: #8a847c; }
-Footer FooterKey { background: #1a1918; }
-Footer FooterKey .footer-key--key { background: #1a1918; color: #d97757; text-style: bold; }
-Footer FooterKey .footer-key--description { color: #8a847c; }
-Footer FooterKey:hover { background: #262422; }
-
-SetupScreen { align: center middle; background: rgba(0, 0, 0, 0.6); }
-#dialog {
-    width: 64;
-    max-width: 100%;
-    height: auto;
-    max-height: 100%;
-    overflow-y: auto;
-    border: round #d97757;
-    border-title-color: #d97757;
-    border-title-style: bold;
-    background: #211f1d;
-    padding: 1 2;
-}
-#presets { width: 100%; height: 3; margin-bottom: 1; align: center middle; }
-#presets Button { min-width: 0; }
-.field { width: 100%; height: 3; }
-.field Label { width: 12; height: 3; content-align: left middle; color: #e8e3dc; }
-.field Input { width: 1fr; border: round #3d3935; background: #211f1d; padding: 0 1; }
-.field Input:focus { border: round #d97757; background: #211f1d; }
-.field Input > .input--placeholder { color: #6b655e; }
-#dialog Button { background: #211f1d; }
-#dialog Button:hover { background: #211f1d; }
-#setup-hint { color: #8a847c; height: auto; }
-#setup-error { color: #e5857a; height: auto; }
-#dialog-buttons { width: 100%; height: 3; align: right middle; margin-top: 1; }
-#dialog-buttons #start { margin: 0; }
+#dialog {{ width: 64; max-width: 100%; height: auto; max-height: 100%; overflow-y: auto; }}
+#presets {{ width: 100%; height: 3; margin-bottom: 1; align: center middle; }}
+#presets Button {{ min-width: 0; margin: 0 1 0 0; }}
+.field {{ width: 100%; height: 3; }}
+.field Label {{ width: 12; height: 3; content-align: left middle; text-style: bold; }}
+.field Input {{ width: 1fr; }}
+#setup-hint {{ color: {MUTED}; height: auto; }}
+#setup-error {{ color: {BAD}; height: auto; }}
+#dialog-buttons {{ width: 100%; height: 3; align: right middle; margin-top: 1; }}
+#dialog-buttons Button {{ margin: 0 0 0 1; }}
 """
 
 PRESETS = ["1m", "5m", "10m", "15m", "25m", "45m", "1h"]
@@ -355,8 +295,8 @@ class SetupScreen(ModalScreen):
         self.message = message
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="dialog") as dialog:
-            dialog.border_title = " New countdown "
+        with Vertical(id="dialog", classes="dialog") as dialog:
+            dialog.border_title = title("New countdown")
             with Horizontal(id="presets"):
                 for preset in PRESETS:
                     yield Button(preset, id=f"preset-{preset}")
@@ -372,8 +312,8 @@ class SetupScreen(ModalScreen):
             yield Static("Click a preset to start straight away, or fill in a time and press enter.", id="setup-hint")
             yield Static("", id="setup-error")
             with Horizontal(id="dialog-buttons"):
-                yield Button("Cancel", id="cancel")
-                yield Button("▶ Start", id="start", classes="primary")
+                yield Button("CANCEL", id="cancel")
+                yield Button("▶ START", id="start", classes="primary")
 
     def on_mount(self) -> None:
         for button in self.query(Button):
@@ -422,7 +362,7 @@ class SetupScreen(ModalScreen):
         self.dismiss(None)
 
 
-class CountdownApp(App):
+class CountdownApp(KitApp):
     TITLE = "kit countdown"
     CSS = CSS
     AUTO_FOCUS = None
@@ -455,22 +395,22 @@ class CountdownApp(App):
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="topbar"):
-            yield Static(Text.assemble(("✻ ", f"bold {ACCENT}"), ("kit countdown", f"bold {TEXT}")), id="brand")
+            yield Static(brand("kit countdown"), id="brand")
             yield Static("", id="ends")
-        with Vertical(id="card"):
+        with Vertical(id="card", classes="slab"):
             yield Static("", id="status")
             with Center():
-                yield Digits(format_clock(self.timer.remaining) if self.timer else "--:--", id="clock")
+                yield BigDigits(format_clock(self.timer.remaining) if self.timer else "--:--", id="clock", short_below=27)
             yield Static(self.message, id="message")
             with Center():
                 yield ProgressBar(total=100, show_eta=False, id="progress")
             with Horizontal(id="controls"):
-                yield Button("‖ Pause", id="toggle", classes="primary")
-                yield Button("−1m", id="less")
-                yield Button("+1m", id="more")
-                yield Button("↺ Reset", id="reset")
-                yield Button("+ New", id="new")
-                yield Button("✕ Quit", id="quit")
+                yield Button("‖ PAUSE", id="toggle", classes="primary")
+                yield Button("−1M", id="less")
+                yield Button("+1M", id="more")
+                yield Button("↺ RESET", id="reset")
+                yield Button("+ NEW", id="new")
+                yield Button("✕ QUIT", id="quit")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -537,7 +477,7 @@ class CountdownApp(App):
             status.append("‖ PAUSED")
         self.query_one("#status", Static).update(status)
 
-        clock = self.query_one("#clock", Digits)
+        clock = self.query_one("#clock", BigDigits)
         text = format_clock(timer.remaining)
         if clock.value != text:
             clock.update(text)
@@ -556,14 +496,14 @@ class CountdownApp(App):
         self.query_one("#ends", Static).update(ends)
 
         card = self.query_one("#card")
-        card.border_title = " Time's up " if timer.done else " Countdown "
+        card.border_title = title("Time's up" if timer.done else "Countdown")
         card.border_subtitle = f" {format_span(timer.total)} "
 
         toggle = self.query_one("#toggle", Button)
         if timer.done:
-            label = "✕ Dismiss" if self.alerting else "↺ Again"
+            label = "✕ DISMISS" if self.alerting else "↺ AGAIN"
         else:
-            label = "‖ Pause" if timer.running else "▶ Resume"
+            label = "‖ PAUSE" if timer.running else "▶ RESUME"
         if str(toggle.label) != label:
             toggle.label = label
 

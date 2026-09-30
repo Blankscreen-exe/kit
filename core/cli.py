@@ -125,7 +125,7 @@ def _print_markdown(text: str) -> None:
             in_code = not in_code
             continue
         if in_code:
-            print("    " + style(line, "cyan"))
+            print("    " + style(line, "accent"))
         elif line.startswith("#"):
             print(style(line.lstrip("#").strip().upper(), "bold"))
         else:
@@ -141,7 +141,7 @@ def cmd_list(args: list[str]) -> int:
     ]
     matched_builtins = [name for name, (_, text) in BUILTINS.items() if needle in f"{name} {text}".lower()] if needle else []
 
-    print(f"{style('kit', 'bold', 'cyan')} {style('- personal toolbox', 'dim')}   {style(KIT_HOME, 'dim')}")
+    print(f"{style('kit', 'bold', 'accent')} {style('- personal toolbox', 'dim')}   {style(KIT_HOME, 'dim')}")
     print()
     if not tools and not matched_builtins:
         print("  no tools or commands match" if needle else "  no tools yet - create one with: kit new <name>")
@@ -157,7 +157,7 @@ def cmd_list(args: list[str]) -> int:
                 print(f"  {style(category.upper(), 'bold')}")
                 for tool in items:
                     if tool.supported:
-                        columns = [style(tool.name.ljust(name_width), "green")]
+                        columns = [style(tool.name.ljust(name_width), "good")]
                         summary = tool.summary or style("(no summary - add a README.md)", "dim")
                     else:
                         columns = [style(tool.name.ljust(name_width), "dim")]
@@ -172,7 +172,7 @@ def cmd_list(args: list[str]) -> int:
             width = max(len(name) for name in matched_builtins)
             for name in matched_builtins:
                 _, text = BUILTINS[name]
-                print(f"    {style(('kit ' + name).ljust(width + 4), 'green')}  {style(text, 'dim')}")
+                print(f"    {style(('kit ' + name).ljust(width + 4), 'good')}  {style(text, 'dim')}")
             print()
 
     print(f"{style('run:', 'bold')}       kit <tool> [args]      {style('docs:', 'bold')} kit help <tool>")
@@ -196,7 +196,7 @@ def cmd_help(args: list[str]) -> int:
 
     if args[0] in BUILTINS:
         hint, text = BUILTINS[args[0]]
-        print(f"{style('kit ' + args[0], 'bold', 'green')} {style(hint, 'dim')}")
+        print(f"{style('kit ' + args[0], 'bold', 'good')} {style(hint, 'dim')}")
         print(f"  {text}")
         print(style(f"  it's a built-in, not a tool - run 'kit {args[0]} --help' for its full options", "dim"))
         return 0
@@ -205,7 +205,7 @@ def cmd_help(args: list[str]) -> int:
     if tool is None:
         return 2
 
-    title = style(tool.name, "bold", "green")
+    title = style(tool.name, "bold", "good")
     if tool.aliases:
         title += style(f"  (alias: {', '.join(tool.aliases)})", "dim")
     print(title)
@@ -266,7 +266,7 @@ def cmd_doctor(args: list[str]) -> int:
 
     def report(level: str, label: str) -> None:
         nonlocal failures
-        marks = {"ok": style(" ok ", "green"), "warn": style("warn", "yellow"), "fail": style("FAIL", "bold", "red")}
+        marks = {"ok": style(" ok ", "good"), "warn": style("warn", "accent"), "fail": style("FAIL", "bold", "bad")}
         failures += level == "fail"
         print(f"  [{marks[level]}] {label}")
 
@@ -332,7 +332,7 @@ def cmd_doctor(args: list[str]) -> int:
                 report(level, message)
 
     print()
-    print(style("all good", "green") if not failures else style(f"{failures} problem(s) need fixing", "red"))
+    print(style("all good", "good") if not failures else style(f"{failures} problem(s) need fixing", "bad"))
     return 1 if failures else 0
 
 

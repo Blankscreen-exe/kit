@@ -201,7 +201,7 @@ def cmd_list(config: Path, entries: list[HostEntry], notes: list[str]) -> int:
         target_width = max(6, *(len(r[1]) for r in rows))
         print(f"  {style('NAME'.ljust(name_width), 'bold')}  {style('TARGET'.ljust(target_width), 'bold')}  {style('KEY', 'bold')}")
         for name, target, key in rows:
-            print(f"  {style(name.ljust(name_width), 'green')}  {target.ljust(target_width)}  {style(key, 'dim')}".rstrip())
+            print(f"  {style(name.ljust(name_width), 'good')}  {target.ljust(target_width)}  {style(key, 'dim')}".rstrip())
     print()
     print(style("connect: kit ssh <name>    add: kit ssh add <name> user@host    details: kit ssh show <name>", "dim"))
     for note in notes:
@@ -278,7 +278,7 @@ def cmd_add(config: Path, entries: list[HostEntry], argv: list[str]) -> int:
     backup = save_backup(config)
     write_text(config, (body + "\n\n" if body else "") + "\n".join(block) + "\n", newline)
 
-    print(f"{style('added', 'bold', 'green')} {name} to {config}")
+    print(f"{style('added', 'bold', 'good')} {name} to {config}")
     for line in block[1:]:
         print(style(f"  {line}", "dim"))
     if backup:
@@ -320,7 +320,7 @@ def cmd_remove(config: Path, entries: list[HostEntry], argv: list[str]) -> int:
     backup = save_backup(entry.source)
     write_text(entry.source, "\n".join(lines[:start] + lines[end:]), newline)
 
-    print(f"{style('removed', 'bold', 'yellow')} {name} from {entry.source}")
+    print(f"{style('removed', 'bold', 'accent')} {name} from {entry.source}")
     for line in removed:
         print(style(f"  {line}", "dim"))
     if backup:
@@ -345,13 +345,13 @@ def cmd_show(config: Path, custom: bool, entries: list[HostEntry], argv: list[st
         settings.setdefault(key, []).append(value)
 
     matches = find_entries(entries, args.name)
-    print(style(args.name, "bold", "green") + style(f"  {matches[0].source}, line {matches[0].line}" if matches else "", "dim"))
+    print(style(args.name, "bold", "good") + style(f"  {matches[0].source}, line {matches[0].line}" if matches else "", "dim"))
     if not matches:
         warn(f"'{args.name}' is not a Host in {config} - these are ssh's defaults for that hostname")
     shown = [k for k in SHOW_KEYS if k in settings]
     width = max(len(k) for k in shown) if shown else 0
     for key in shown:
-        print(f"  {style(key.ljust(width), 'cyan')}  {', '.join(settings[key])}")
+        print(f"  {style(key.ljust(width), 'accent')}  {', '.join(settings[key])}")
     if args.all:
         print()
         for key, values in settings.items():
@@ -399,8 +399,8 @@ def cmd_keys(entries: list[HostEntry]) -> int:
     headers = ("KEY", "TYPE", "FINGERPRINT")
     print("  " + "  ".join(style(h.ljust(widths[i]), "bold") for i, h in enumerate(headers)) + "  " + style("USED BY", "bold"))
     for name, kind, fingerprint, status, has_private in rows:
-        status_text = style(status, "red") if not has_private else style(status, "green" if status != "-" else "dim")
-        print(f"  {style(name.ljust(widths[0]), 'cyan')}  {kind.ljust(widths[1])}  {style(fingerprint.ljust(widths[2]), 'dim')}  {status_text}")
+        status_text = style(status, "bad") if not has_private else style(status, "good" if status != "-" else "dim")
+        print(f"  {style(name.ljust(widths[0]), 'accent')}  {kind.ljust(widths[1])}  {style(fingerprint.ljust(widths[2]), 'dim')}  {status_text}")
     return 0
 
 

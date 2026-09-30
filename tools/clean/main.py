@@ -27,7 +27,7 @@ SAFE = "safe"
 REDOWNLOAD = "re-downloads"
 CAREFUL = "careful"
 REPORT = "report only"
-SAFETY_STYLE = {SAFE: ("green",), REDOWNLOAD: ("cyan",), CAREFUL: ("yellow", "bold"), REPORT: ("dim",)}
+SAFETY_STYLE = {SAFE: ("good",), REDOWNLOAD: ("bold",), CAREFUL: ("accent", "bold"), REPORT: ("dim",)}
 
 ALL_PLATFORMS = ("windows", "linux", "macos")
 IS_WINDOWS = sys.platform.startswith("win")
@@ -686,7 +686,7 @@ def confirm(question: str) -> bool:
 
 def cmd_scan(ctx: Context) -> int:
     rows = sorted(scan_all(ctx, categories_for(ctx.platform)), key=lambda r: (r[1].failed, -r[1].size))
-    print(f"{style('kit clean', 'bold', 'cyan')}  {style('reclaimable space - nothing is deleted', 'dim')}")
+    print(f"{style('kit clean', 'bold', 'accent')}  {style('reclaimable space - nothing is deleted', 'dim')}")
     print()
     if not rows:
         print("  nothing found to clean")
@@ -701,7 +701,7 @@ def cmd_scan(ctx: Context) -> int:
     print()
     print(f"{style('Disk ' + anchor, 'bold')}  {human(usage.free)} free of {human(usage.total)} "
           f"({usage.used / usage.total * 100:.0f}% used)")
-    print(f"  {style('kit clean run --all-safe', 'green')}  frees about {style(human(safe_total), 'bold')}"
+    print(f"  {style('kit clean run --all-safe', 'good')}  frees about {style(human(safe_total), 'bold')}"
           f"  ->  about {human(usage.free + safe_total)} free afterwards")
     if careful_total:
         print(f"  careful categories        up to {human(careful_total)} more, only when you name them")
@@ -768,11 +768,11 @@ def cmd_run(ctx: Context, args: argparse.Namespace) -> int:
             result = Result(error=str(exc))
         if result.error:
             failures += 1
-            print(f"  {style(cat.key, 'bold')}: {style('failed', 'red')} - {result.error}")
+            print(f"  {style(cat.key, 'bold')}: {style('failed', 'bad')} - {result.error}")
             continue
         freed_total += result.freed
         extra = style(f"  ({result.note})", "dim") if result.note else ""
-        print(f"  {style(cat.key, 'bold')}: {style('freed ' + human(result.freed), 'green')}{extra}")
+        print(f"  {style(cat.key, 'bold')}: {style('freed ' + human(result.freed), 'good')}{extra}")
     _, after = disk()
     print()
     print(f"{style('Freed', 'bold')} {human(freed_total)}.  Disk {anchor}: {human(before.free)} free before, "
@@ -849,7 +849,7 @@ def cmd_big(args: argparse.Namespace) -> int:
     print(style("  FOLDERS AND FILES", "bold"))
     for name, size in top_children:
         filled = round(size / biggest * 20) if biggest else 0
-        bar = style(full * filled, "cyan") + style(empty * (20 - filled), "dim")
+        bar = style(full * filled, "accent") + style(empty * (20 - filled), "dim")
         print(f"  {human(size):>9}  {bar}  {name}")
     print()
     print(style("  LARGEST FILES", "bold"))

@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from kitlib import die
+from kitlib import die, theme
 from kitlib.webserver import KitHandler
 from kitlib import settings as settings_api
 
@@ -42,11 +42,16 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
 SAFE_ARG_RE = re.compile(r"[\w@%+=:,./\\-]+")
 DRY_RUN_ENV = "KIT_HUB_DRY_RUN"  # tests: report the terminal / open-file command instead of running it
 
-UNAUTHORIZED_PAGE = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>kit hub</title></head>
-<body style="font:15px system-ui,sans-serif;max-width:560px;margin:80px auto;padding:0 20px">
-<h1 style="font-size:20px">kit hub needs its access token</h1>
-<p>Open the full address printed in the terminal where you ran <code>kit hub</code>
-(it ends in <code>?token=...</code>).</p></body></html>"""
+UNAUTHORIZED_PAGE = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>kit hub</title>
+<!--kit-theme-->
+<style>
+body { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.slab { max-width: 480px; padding: 22px 24px; }
+</style></head>
+<body><div class="slab">
+<h1><span class="mark">&#9632;</span>kit hub</h1>
+<p>This page needs its access token. Open the full address printed in the terminal where you ran
+<code>kit hub</code> (it ends in <code>?token=...</code>).</p></div></body></html>"""
 
 
 class RequestError(Exception):
@@ -648,7 +653,7 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
         self.send_json(status, {"error": message})
 
     def send_page(self, status: int, page: str) -> None:
-        self.send_body(status, page.encode("utf-8"), "text/html; charset=utf-8", {
+        self.send_body(status, theme.inject(page).encode("utf-8"), "text/html; charset=utf-8", {
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
                                        "connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'",
             "X-Frame-Options": "DENY",

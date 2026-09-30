@@ -243,6 +243,21 @@ A tool that has only `main.ps1` shows as Windows-only, and one with only `main.s
 Tools receive `KIT_HOME`, `KIT_TOOL` and `KIT_TOOL_DIR` in their environment. Python tools can
 `from kitlib import KIT_HOME, style, error, warn, die` for coloured output and error handling.
 
+### Look
+
+kit has one look, "Concrete": grey slabs, hard light edges, square corners, a safety-yellow accent,
+monospace and uppercase labels. Its colours live only in `lib/kitlib/theme.py`, and each kind of tool
+takes them from there:
+
+| Tool kind | Use |
+|---|---|
+| Terminal output | `style(text, "accent")` for kit's name and labels, `"good"`, `"bad"`, `"muted"` - not raw colour names |
+| Web page | put `<!--kit-theme-->` in the page's `<head>` and serve it through `theme.inject(html)`: the page gets `lib/kitlib/kit.css` (buttons, cards, fields, tags, tables) and styles only its own layout, with the shared `var(--accent)` etc. |
+| Textual app | subclass `kitlib.tui.KitApp` instead of `App`: kit's theme and base styles come with it. `brand("kit name")` for the corner title, `title("...")` for border titles, `BigDigits` for a big square clock |
+
+Things you type or pick - file names, pad text, process names - keep their case; only kit's own labels
+are uppercase.
+
 ### Python packages
 
 The repo is a single uv project, and every Python tool runs in its one environment. If a tool needs a package,
@@ -312,7 +327,7 @@ are picked up exactly like `tools/`. This is handy for private or work-only tool
 ```text
 kit.py            entry point
 core/             registry (finds tools), runner, CLI, `kit new` templates, `kit config`, `kit update`, hub/, `kit share`
-lib/kitlib/       helpers Python tools can import (output, settings, figlet, QR codes, browser, clipboard, web server)
+lib/kitlib/       helpers Python tools can import (output, theme, settings, figlet, QR codes, browser, clipboard, web server, Textual)
 tools/            one folder per tool
 vendor/           bundled third-party binaries (figlet for Windows)
 bin/              launchers: kit.ps1 (PowerShell), kit.cmd (cmd), kit (sh)

@@ -89,9 +89,9 @@ def raw(value: Any) -> str:
 def _source_text(item: dict) -> tuple[str, str]:
     """(where a value comes from, colour)."""
     if item["source"] == "file":
-        return "file", "green"
+        return "file", "good"
     if item["source"] == "env":
-        return f"env ${item['spec'].get('env')}", "yellow"
+        return f"env ${item['spec'].get('env')}", "accent"
     return "default", "dim"
 
 
@@ -168,7 +168,7 @@ def cmd_list(only: str | None) -> int:
         value_width = min(max(len(fmt(item["value"])) for item in resolved.values()), 32)
         source_width = max(len(_source_text(item)[0]) for item in resolved.values())
         print()
-        print(style(f"[{section}]", "bold", "cyan"))
+        print(style(f"[{section}]", "bold", "accent"))
         for key, item in resolved.items():
             value = fmt(item["value"])
             print(f"  {key.ljust(key_width)}  {style(value.ljust(value_width), 'bold')}  "
@@ -220,7 +220,7 @@ def cmd_set(target: str, text: str) -> int:
     except settings.SettingsError as exc:
         error(str(exc))
         return 1
-    print(f"[{section}] {key}: {fmt(old)} -> {style(fmt(value), 'bold', 'green')}")
+    print(f"[{section}] {key}: {fmt(old)} -> {style(fmt(value), 'bold', 'good')}")
     env_name = spec.get("env")
     if env_name and os.environ.get(env_name):
         warn(f"${env_name} is set in this shell, so it still overrides this setting")

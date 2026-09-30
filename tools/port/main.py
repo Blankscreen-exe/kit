@@ -99,11 +99,11 @@ def cmd_list(include_udp: bool) -> int:
         exposed = any(ip in ALL_INTERFACES for ip in addresses)
         rows.append([
             (proto, ("dim",)),
-            (str(port), ("bold", "green")),
-            (short_addresses(addresses), ("yellow",) if exposed else ()),
+            (str(port), ("bold", "good")),
+            (short_addresses(addresses), ("accent",) if exposed else ()),
             str(pid or "-"),
-            (name, ("cyan",)),
-            (shared.get(pid, "-"), ("green",) if pid in shared else ("dim",)),
+            (name, ("accent",)),
+            (shared.get(pid, "-"), ("good",) if pid in shared else ("dim",)),
             (command, ("dim",)),
         ])
     print_table(["PROTO", "PORT", "ADDRESS", "PID", "PROCESS", "SHARED", "COMMAND"], rows)
@@ -136,14 +136,14 @@ def cmd_port(port: int, kill: bool, force: bool, assume_yes: bool) -> int:
     for conn in sorted(matched, key=order):
         name, _ = process_details(conn.pid, cache)
         state = conn.status if protocol(conn) == "tcp" else "BOUND"
-        state_style = ("bold", "green") if state == psutil.CONN_LISTEN else ("dim",)
+        state_style = ("bold", "good") if state == psutil.CONN_LISTEN else ("dim",)
         rows.append([
             (protocol(conn), ("dim",)),
             address(conn.laddr),
             address(conn.raddr),
             (state, state_style),
             str(conn.pid or "-"),
-            (name, ("cyan",)),
+            (name, ("accent",)),
         ])
     print(style(f"port {port}", "bold"))
     print_table(["PROTO", "LOCAL", "REMOTE", "STATE", "PID", "PROCESS"], rows)
@@ -170,7 +170,7 @@ def kill_processes(port: int, pids: list[int], conns: list, force: bool, assume_
     print(style(f"{verb} the process{plural} listening on port {port}:", "bold"))
     for pid in pids:
         name, command = process_details(pid, cache)
-        print(f"  {pid}  {style(name, 'cyan')}  {style(command[:100], 'dim')}")
+        print(f"  {pid}  {style(name, 'accent')}  {style(command[:100], 'dim')}")
         if name.lower().removesuffix(".exe") in CAUTION:
             warn(f"{name} looks like part of Docker, WSL, a database or the OS - stopping it may break more than this port")
     if not confirm(f"{verb} {len(pids)} process{plural}?", assume_yes):
@@ -192,7 +192,7 @@ def kill_processes(port: int, pids: list[int], conns: list, force: bool, assume_
 
     gone, alive = psutil.wait_procs(targets, timeout=3)
     for process in gone:
-        print(f"{style('stopped', 'bold', 'green')} PID {process.pid}")
+        print(f"{style('stopped', 'bold', 'good')} PID {process.pid}")
     for process in alive:
         failed = True
         hint = "" if force else " - add --force to kill it"

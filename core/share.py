@@ -314,7 +314,7 @@ def cmd_start(tool_name: str, tool_args: list[str], name: str | None, tailscale:
         entry["url"] = url
         data[name] = entry
         _save(data)
-        print(f"  {style(url, 'bold', 'green')}")
+        print(f"  {style(url, 'bold', 'good')}")
         if urlparse(url).hostname not in LOCAL_HOSTS:
             for line in qr_lines(url):
                 print(" ", line)
@@ -330,7 +330,7 @@ def cmd_start(tool_name: str, tool_args: list[str], name: str | None, tailscale:
             entry["url"] = shared
             data[name] = entry
             _save(data)
-            print(f"  {style(shared, 'bold', 'green')}  (via tailscale)")
+            print(f"  {style(shared, 'bold', 'good')}  (via tailscale)")
             for line in qr_lines(shared):
                 print(" ", line)
 
@@ -394,7 +394,7 @@ def cmd_list() -> int:
     for r in rows:
         uptime = _format_duration(time.time() - r["started"])
         url = r.get("url") or style("(no address detected yet)", "dim")
-        print(f"  {style(r['name'].ljust(name_width), 'green')}  {r['tool'].ljust(tool_width)}  "
+        print(f"  {style(r['name'].ljust(name_width), 'good')}  {r['tool'].ljust(tool_width)}  "
               f"pid {str(r['pid']).ljust(7)} up {uptime.ljust(8)} {url}")
     return 0
 

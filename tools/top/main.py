@@ -24,7 +24,7 @@ except ImportError as exc:
 from top_scan import (AutoRow, Engine, ProcRow, Snapshot, TrustStore, data_path,  # noqa: E402
                       elevation_hint)
 
-LEVEL_STYLES = {"high": ("bold", "red"), "medium": ("bold", "yellow"), "low": ("cyan",), "ok": ("dim",)}
+LEVEL_STYLES = {"high": ("bold", "bad"), "medium": ("bold", "accent"), "low": (), "ok": ("dim",)}
 LEVEL_ORDER = {"high": 0, "medium": 1, "low": 2, "ok": 3}
 
 
@@ -43,12 +43,12 @@ def print_processes(snapshot: Snapshot, rows: list[ProcRow]) -> None:
     flagged = counts["high"] + counts["medium"] + counts["low"]
     print(f"{style('PROCESSES', 'bold')}  {len(snapshot.rows)} running · {flagged} flagged")
     if snapshot.denied:
-        print(style(f"  {snapshot.denied} couldn't be inspected - {elevation_hint()}", "yellow"))
+        print(style(f"  {snapshot.denied} couldn't be inspected - {elevation_hint()}", "accent"))
     if not rows:
-        print(style("  nothing suspicious found", "green"))
+        print(style("  nothing suspicious found", "good"))
     for row in rows:
         where = row.exe or style("(path unknown)", "dim")
-        trusted = style("  trusted", "green") if row.trusted else ""
+        trusted = style("  trusted", "good") if row.trusted else ""
         print(f"  {badge(row.level)} {row.pid:>7}  {style(row.name, 'bold')}  {shorten(str(where), 90)}{trusted}")
         for flag in row.flags:
             line = f"                  · {flag.reason}"
@@ -62,11 +62,11 @@ def print_autostart(rows: list[AutoRow], total: int) -> None:
     flagged = sum(1 for r in rows if r.level != "ok")
     print(f"{style('AUTOSTART', 'bold')}  {total} entries · {flagged} flagged")
     if not rows:
-        print(style("  nothing suspicious found", "green"))
+        print(style("  nothing suspicious found", "good"))
     for row in rows:
         e = row.entry
         state = style("  (disabled)", "dim") if e.disabled else ""
-        trusted = style("  trusted", "green") if row.trusted else ""
+        trusted = style("  trusted", "good") if row.trusted else ""
         print(f"  {badge(row.level)} {e.kind}  {style(e.name, 'bold')}{state}{trusted}")
         print(style(f"         {shorten(e.command, 110)}", "dim"))
         print(style(f"         in {e.location}", "dim"))
@@ -204,7 +204,7 @@ def main() -> int:
         if args.untrust:
             if not store.remove(args.untrust):
                 die(f"not in the trusted list: {args.untrust}")
-            print(f"{style('removed', 'bold', 'green')} {args.untrust}")
+            print(f"{style('removed', 'bold', 'good')} {args.untrust}")
             return 0
         if not store.entries:
             print("no trusted programs yet (press t on a process in 'kit top' to add one)")

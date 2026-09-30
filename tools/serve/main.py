@@ -91,7 +91,7 @@ def share_urls(host: str, port: int) -> tuple[str, list[tuple[str, str]]]:
 
 def print_banner(title: str, host: str, port: int, show_qr: bool) -> str:
     local, network = share_urls(host, port)
-    lines = ["", f"{style('kit serve', 'bold', 'cyan')}  {title}", "", f"  {style('Local:'.ljust(9), 'bold')} {local}"]
+    lines = ["", f"{style('kit serve', 'bold', 'accent')}  {title}", "", f"  {style('Local:'.ljust(9), 'bold')} {local}"]
     if network:
         for i, (url, interface) in enumerate(network):
             label = style("Network:".ljust(9), "bold") if i == 0 else " " * 9
@@ -145,7 +145,7 @@ class FolderHandler(KitHandler, http.server.SimpleHTTPRequestHandler):
             status = int(code)
         except (TypeError, ValueError):
             status = 0
-        colour = "green" if status < 400 else "yellow" if status < 500 else "red"
+        colour = "good" if status < 400 else "accent" if status < 500 else "bad"
         request = f"{self.command or '?'} {self.path if hasattr(self, 'path') else ''}"
         log(f"{self.client_address[0]:<15}  {request}  {style(status or code, colour)}")
 

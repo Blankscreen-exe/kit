@@ -204,7 +204,7 @@ def own_hostname() -> str:
 
 # --- listing ------------------------------------------------------------------------------
 
-KIND_STYLES = {"block": ("green",), "local": ("cyan",), "system": ("dim",), "redirect": ("yellow", "bold")}
+KIND_STYLES = {"block": ("good",), "local": ("bold",), "system": ("dim",), "redirect": ("accent", "bold")}
 
 
 def cmd_list(hosts: HostsFile, args: argparse.Namespace) -> int:
@@ -227,13 +227,13 @@ def cmd_list(hosts: HostsFile, args: argparse.Namespace) -> int:
             if line.kind == "blank":
                 print(f"{number}")
             elif line.kind == "other" and "\0" in line.text:
-                print(f"{number}  {style(f'(binary data: {line.text.count(chr(0))} NUL bytes)', 'red')}")
+                print(f"{number}  {style(f'(binary data: {line.text.count(chr(0))} NUL bytes)', 'bad')}")
             else:
                 text = display(line.text)
                 print(f"{number}  {style(text[:100] + ('...' if len(text) > 100 else ''), 'dim')}")
             continue
         kind = ip_kind(line.ip, line.names)
-        state = style("on ", "green") if line.kind == "entry" else style("off", "dim")
+        state = style("on ", "good") if line.kind == "entry" else style("off", "dim")
         ip = line.ip.ljust(ip_width)
         names = " ".join(line.names)
         comment = f"  {style('# ' + line.comment, 'dim')}" if line.comment else ""
@@ -249,7 +249,7 @@ def cmd_list(hosts: HostsFile, args: argparse.Namespace) -> int:
     print()
     summary = f"{len(active)} on, {len(entries) - len(active)} off"
     if redirects:
-        summary += f", {style(f'{len(redirects)} redirect(s) to other addresses', 'yellow')}"
+        summary += f", {style(f'{len(redirects)} redirect(s) to other addresses', 'accent')}"
     print(summary)
     sys.stdout.flush()  # keep the warnings below the table when output is piped
     if hosts.nul_bytes:
@@ -448,9 +448,9 @@ def print_diff(old: list[str], new: list[str]) -> None:
         if tag == "equal":
             continue
         for index in range(i1, i2):
-            print(style(f"  {index + 1:>4} - {display(old[index])}", "red"))
+            print(style(f"  {index + 1:>4} - {display(old[index])}", "bad"))
         for index in range(j1, j2):
-            print(style(f"  {index + 1:>4} + {display(new[index])}", "green"))
+            print(style(f"  {index + 1:>4} + {display(new[index])}", "good"))
 
 
 def write_file(path: Path, data: bytes) -> None:
@@ -491,7 +491,7 @@ def apply_change(hosts: HostsFile, new_lines: list[Line], notes: list[str], args
     except BaseException:
         saved.unlink(missing_ok=True)  # nothing was written, so the backup would only be clutter
         raise
-    print(f"{style('done', 'bold', 'green')} - backup: {style(str(saved), 'dim')}")
+    print(f"{style('done', 'bold', 'good')} - backup: {style(str(saved), 'dim')}")
     after_change(hosts.path, args)
     return 0
 
@@ -619,7 +619,7 @@ def flush_dns(quiet: bool = False) -> int:
                 print("no DNS cache service found - nothing to flush (lookups read the hosts file directly)")
             return 0
     if done:
-        print(f"{style('flushed', 'green')} {', '.join(done)}")
+        print(f"{style('flushed', 'good')} {', '.join(done)}")
         return 0
     message = "couldn't flush the DNS cache (it may need admin rights)"
     if quiet:
@@ -714,7 +714,7 @@ def cmd_edit(path: Path, args: argparse.Namespace) -> int:
     saved = save_backup(path, before.data)
     print(f"{style('Changes to', 'bold')} {path}:")
     print_diff([line.text for line in before.lines], [line.text for line in after.lines])
-    print(f"{style('saved', 'bold', 'green')} - the previous version is in {style(str(saved), 'dim')}")
+    print(f"{style('saved', 'bold', 'good')} - the previous version is in {style(str(saved), 'dim')}")
     bad = [line for line in after.lines if line.kind == "other" and "\0" not in line.text]
     if bad:
         warn("these lines aren't valid entries: " + ", ".join(f"{l.number} ({display(l.text)[:40]})" for l in bad[:5]))

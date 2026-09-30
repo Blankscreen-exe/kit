@@ -1,0 +1,80 @@
+/* kit's shared web stylesheet - "Concrete". kitlib.theme.web_css() puts the palette in front of this as
+   CSS variables (--bg, --panel, --accent, ...), and each page adds only its own layout after it. */
+
+* { box-sizing: border-box; border-radius: 0 !important; }
+[hidden] { display: none !important; }
+html { background: var(--bg); color-scheme: dark; scrollbar-color: var(--dim) var(--bg); }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--mono); }
+::selection { background: var(--accent); color: var(--on-accent); }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { color: var(--text); }
+code { color: var(--accent); font-family: var(--mono); font-size: 12px; }
+
+/* title: "■ KIT NOTIFY" and the line under it */
+h1 { font: 900 20px/1.1 var(--mono); margin: 0 0 4px; text-transform: uppercase; letter-spacing: .04em; }
+h1 .mark { color: var(--accent); margin-right: 8px; }
+.sub { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+
+/* slabs */
+.card { border: 3px solid var(--edge); background: var(--panel); padding: 12px 14px; }
+.slab { border: 3px solid var(--edge); background: var(--bg); box-shadow: 5px 5px 0 var(--shadow); }
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.spacer { flex: 1; }
+.meta { color: var(--muted); font-size: 12px; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+.error-text { color: var(--bad); font-size: 12px; margin-top: 8px; }
+.empty { border: 3px dashed var(--dim); padding: 22px 16px; text-align: center; color: var(--muted); font-size: 13px; }
+footer { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+         border-top: 3px solid var(--edge); padding-top: 10px; margin-top: 16px; }
+
+/* buttons press into their shadow */
+button {
+  border: 3px solid var(--edge); background: var(--panel); color: var(--text); cursor: pointer;
+  padding: 6px 12px; font: 700 12px var(--mono); text-transform: uppercase; letter-spacing: .08em;
+  box-shadow: 3px 3px 0 var(--shadow); transition: transform .05s, box-shadow .05s;
+}
+button:hover:not(:disabled) { background: var(--raised); }
+button:active:not(:disabled) { transform: translate(3px, 3px); box-shadow: 0 0 0 var(--shadow); }
+button.primary { background: var(--accent); color: var(--on-accent); }
+button.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+button.danger { background: var(--bad); color: var(--on-accent); }
+button.ghost, button.link-ish { box-shadow: none; border-color: transparent; background: none; color: var(--muted); padding: 4px 6px; }
+button.ghost:hover:not(:disabled), button.link-ish:hover:not(:disabled) { border-color: var(--edge); color: var(--text); background: none; }
+button:disabled { opacity: .4; cursor: default; }
+/* a disabled yellow block goes grey, not olive */
+button.primary:disabled, button.danger:disabled { opacity: 1; background: var(--raised); color: var(--dim); border-color: var(--dim); box-shadow: 3px 3px 0 var(--dim); }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* fields */
+input, select, textarea {
+  border: 3px solid var(--edge); background: var(--bg); color: var(--text);
+  padding: 6px 8px; font: 13px var(--mono);
+}
+input::placeholder, textarea::placeholder { color: var(--dim); }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+label.opt { color: var(--muted); font: 700 11px var(--mono); text-transform: uppercase; display: inline-flex; align-items: center; gap: 6px; }
+
+/* a segmented choice: the picked one is a yellow block */
+.switch { display: inline-flex; border: 3px solid var(--edge); }
+.switch button { border: 0; box-shadow: none; background: none; color: var(--muted); }
+.switch button + button { border-left: 3px solid var(--edge); }
+.switch button[aria-pressed="true"], .switch .on { background: var(--accent); color: var(--on-accent); }
+
+/* solid labels */
+.tag, .badge { display: inline-block; font: 700 11px var(--mono); text-transform: uppercase; letter-spacing: .06em; padding: 1px 7px; }
+.tag { background: var(--accent); color: var(--on-accent); }
+.badge { color: var(--muted); border: 2px solid var(--dim); }
+.badge.good, .badge.sent, .tag.good { background: var(--good); border-color: var(--good); color: var(--on-accent); }
+.badge.bad, .badge.failed, .tag.bad { background: var(--bad); border-color: var(--bad); color: var(--on-accent); }
+
+/* progress: a striped yellow block in a hard frame */
+.progress { height: 14px; border: 3px solid var(--edge); background: var(--bg); overflow: hidden; }
+.progress > i { display: block; height: 100%; width: 0; transition: width .2s;
+  background: repeating-linear-gradient(-45deg, var(--accent) 0 8px, color-mix(in srgb, var(--accent) 70%, var(--bg)) 8px 16px); }
+
+/* tables */
+table { border-collapse: collapse; width: 100%; }
+th { text-align: left; font: 700 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+     border-bottom: 3px solid var(--edge); padding: 6px 8px; }
+td { border-bottom: 1px solid var(--raised); padding: 6px 8px; }
+tr:hover td { background: var(--raised); }

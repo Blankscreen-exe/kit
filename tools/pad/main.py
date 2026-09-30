@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from kitlib import KIT_HOME, die, style, warn
+from kitlib.theme import ACCENT, BAD, DIM, GOOD, PANEL
 from kitlib.clipboard import copy_to_clipboard
 from kitlib.settings import tool_settings
 
@@ -25,10 +26,6 @@ DEFAULTS = {"autosave": True, "line_numbers": False, "wrap": True, "default": "s
 SAVE_DELAY = 0.7     # seconds of quiet typing before an autosave
 WATCH_INTERVAL = 1.5  # how often the open pad checks whether the file changed on disk
 
-ACCENT = "#d97757"
-TEXT = "#e8e3dc"
-MUTED = "#8a847c"
-DIM = "#4a4642"
 
 
 # --- pad files ---------------------------------------------------------------------
@@ -214,53 +211,22 @@ try:
     from textual.containers import Horizontal, Vertical
     from textual.screen import ModalScreen
     from textual.widgets import Button, Footer, Label, TextArea
+
+    from kitlib.tui import KitApp, title
 except ImportError as exc:
     die(f"missing Python package '{exc.name}' - run 'uv sync' in {KIT_HOME} (or re-run the installer)")
 
 CSS = f"""
-Screen {{ background: #1a1918; color: {TEXT}; }}
-
-#pad {{
-    height: 1fr;
-    border: round #3d3935;
-    border-title-color: {ACCENT};
-    border-title-style: bold;
-    border-subtitle-color: #6b655e;
-    background: #1a1918;
-    padding: 0 1;
-}}
-#pad:focus {{ border: round {ACCENT}; }}
-#pad .text-area--cursor-line {{ background: #1f1d1b; }}
+#pad {{ height: 1fr; padding: 0 1; }}
+#pad .text-area--cursor-line {{ background: {PANEL}; }}
 #pad .text-area--gutter {{ color: {DIM}; }}
-#pad .text-area--cursor-gutter {{ color: {MUTED}; background: #1f1d1b; }}
-#pad .text-area--selection {{ background: #4a3a30; }}
+#pad .text-area--cursor-gutter {{ color: {ACCENT}; background: {PANEL}; }}
+#pad .text-area--selection {{ background: {ACCENT} 35%; }}
 
-Footer {{ background: #1a1918; color: {MUTED}; }}
-Footer FooterKey {{ background: #1a1918; }}
-Footer FooterKey .footer-key--key {{ background: #1a1918; color: {ACCENT}; text-style: bold; }}
-Footer FooterKey .footer-key--description {{ color: {MUTED}; }}
-Footer FooterKey:hover {{ background: #262422; }}
-
-QuitScreen {{ align: center middle; background: rgba(0, 0, 0, 0.6); }}
-#dialog {{
-    width: 52;
-    max-width: 100%;
-    height: auto;
-    border: round {ACCENT};
-    border-title-color: {ACCENT};
-    border-title-style: bold;
-    background: #211f1d;
-    padding: 1 2;
-}}
-#dialog Label {{ width: 100%; color: {TEXT}; }}
+#dialog {{ width: 52; max-width: 100%; height: auto; }}
+#dialog Label {{ width: 100%; }}
 #dialog-buttons {{ width: 100%; height: 3; align: right middle; margin-top: 1; }}
-#dialog Button {{
-    min-width: 8; width: auto; height: 3; margin: 0 0 0 1; padding: 0 1;
-    border: round #3d3935; background: #211f1d; color: {TEXT}; text-style: none;
-}}
-#dialog Button:hover {{ background: #211f1d; border: round {MUTED}; color: #ffffff; }}
-#dialog Button:focus {{ border: round {ACCENT}; text-style: none; }}
-#dialog Button.primary {{ color: {ACCENT}; text-style: bold; }}
+#dialog-buttons Button {{ margin: 0 0 0 1; }}
 """
 
 
@@ -288,13 +254,13 @@ class QuitScreen(ModalScreen):
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="dialog") as dialog:
-            dialog.border_title = " Unsaved changes "
+        with Vertical(id="dialog", classes="dialog") as dialog:
+            dialog.border_title = title("Unsaved changes")
             yield Label("Save the pad before quitting?")
             with Horizontal(id="dialog-buttons"):
-                yield Button("Cancel", id="cancel")
-                yield Button("Discard", id="discard")
-                yield Button("Save", id="save", classes="primary")
+                yield Button("CANCEL", id="cancel")
+                yield Button("DISCARD", id="discard")
+                yield Button("SAVE", id="save", classes="primary")
 
     def on_mount(self) -> None:
         self.query_one("#save", Button).focus()
@@ -306,7 +272,7 @@ class QuitScreen(ModalScreen):
         self.dismiss("cancel")
 
 
-class PadApp(App):
+class PadApp(KitApp):
     TITLE = "kit pad"
     CSS = CSS
     ENABLE_COMMAND_PALETTE = False
@@ -334,7 +300,7 @@ class PadApp(App):
 
     def compose(self) -> ComposeResult:
         yield PadArea(
-            self.saved_text, id="pad", soft_wrap=self.wrap, show_line_numbers=self.line_numbers,
+            self.saved_text, id="pad", classes="slab", soft_wrap=self.wrap, show_line_numbers=self.line_numbers,
             tab_behavior="indent", highlight_cursor_line=True,
         )
         yield Footer()
@@ -362,11 +328,11 @@ class PadApp(App):
         status = Text()
         status.append(f" {lines} line{'s' if lines != 1 else ''} · {words} word{'s' if words != 1 else ''} · {chars} char{'s' if chars != 1 else ''}  ")
         if self.state == "error":
-            status.append("● not saved ", style="#e5857a")
+            status.append("● NOT SAVED ", style=f"bold {BAD}")
         elif self.dirty:
-            status.append("● saving… " if self.autosave else "● unsaved (ctrl+s) ", style=ACCENT)
+            status.append("● SAVING… " if self.autosave else "● UNSAVED (CTRL+S) ", style=f"bold {ACCENT}")
         else:
-            status.append("✓ saved ", style="#7fb09b")
+            status.append("✓ SAVED ", style=f"bold {GOOD}")
         self.area.border_subtitle = status
 
     @on(TextArea.Changed, "#pad")

@@ -63,7 +63,7 @@ def show(minutes: int, short: bool) -> None:
     if short:
         print(f"{hours}:{mins:02d}")
     else:
-        print(f"{style(f'{hours}h {mins:02d}m', 'bold', 'green')}  {style(f'({hours}:{mins:02d} = {minutes / 60:.2f}h)', 'dim')}")
+        print(f"{style(f'{hours}h {mins:02d}m', 'bold', 'good')}  {style(f'({hours}:{mins:02d} = {minutes / 60:.2f}h)', 'dim')}")
 
 
 def main() -> int:

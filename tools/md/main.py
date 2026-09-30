@@ -285,7 +285,7 @@ def main() -> int:
         browser = pick_browser(args.browser)
         write_pdf(render_page(source, accent, args.paper, source.parent), output, browser)
 
-    print(f"{style('wrote', 'bold', 'green')} {output}")
+    print(f"{style('wrote', 'bold', 'good')} {output}")
     if args.open:
         open_file(output)
     return 0

@@ -173,14 +173,14 @@ def cmd_jwt(args: argparse.Namespace) -> Result:
             lines.append(f"  {key:<6} {format_epoch(value)}")
         now = time.time()
         if "exp" in times and times["exp"] <= now:
-            status = style("EXPIRED", "bold", "red")
+            status = style("EXPIRED", "bold", "bad")
         elif "nbf" in times and times["nbf"] > now:
-            status = style("NOT YET VALID", "bold", "yellow")
+            status = style("NOT YET VALID", "bold", "accent")
         else:
-            status = style("within its validity window", "green")
+            status = style("within its validity window", "good")
         lines.append(f"  {'status':<6} {status}")
 
-    lines += ["", style("Signature NOT verified - this only decodes the token.", "yellow")]
+    lines += ["", style("Signature NOT verified - this only decodes the token.", "accent")]
     return Result("\n".join(lines), copy=json.dumps(payload, indent=2, ensure_ascii=False))
 
 
@@ -251,11 +251,11 @@ def cmd_json(args: argparse.Namespace) -> Result:
         data = json.loads(source)
     except json.JSONDecodeError as exc:
         lines = source.splitlines()
-        print(f"{style('error:', 'bold', 'red')} invalid JSON in {name} at line {exc.lineno}, column {exc.colno}: {exc.msg}",
+        print(f"{style('error:', 'bold', 'bad')} invalid JSON in {name} at line {exc.lineno}, column {exc.colno}: {exc.msg}",
               file=sys.stderr)
         if 0 < exc.lineno <= len(lines):
             pointer = " " * (exc.colno - 1) + "^"
-            print(f"  {lines[exc.lineno - 1]}\n  {style(pointer, 'red')}", file=sys.stderr)
+            print(f"  {lines[exc.lineno - 1]}\n  {style(pointer, 'bad')}", file=sys.stderr)
         raise SystemExit(1)
 
     if args.minify:

@@ -75,7 +75,7 @@ def main() -> int:
         print(style(f"  {caption}", "dim"))
         print()
     for path in saved:
-        print(f"{style('saved', 'bold', 'green')} {path}")
+        print(f"{style('saved', 'bold', 'good')} {path}")
     return 0
 
 

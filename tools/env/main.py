@@ -601,11 +601,11 @@ def preview(before: dict[str, str], after: dict[str, str], show_secrets: bool = 
         if old == new:
             continue
         if old is None:
-            lines.append(f"  {style('+', 'green')} {name} = {masked(name, new, show_secrets)}")
+            lines.append(f"  {style('+', 'good')} {name} = {masked(name, new, show_secrets)}")
         elif new is None:
-            lines.append(f"  {style('-', 'red')} {name}  {style('(was ' + masked(name, old, show_secrets) + ')', 'dim')}")
+            lines.append(f"  {style('-', 'bad')} {name}  {style('(was ' + masked(name, old, show_secrets) + ')', 'dim')}")
         else:
-            lines.append(f"  {style('~', 'yellow')} {name}")
+            lines.append(f"  {style('~', 'accent')} {name}")
             lines.append(f"      old: {masked(name, old, show_secrets)}")
             lines.append(f"      new: {masked(name, new, show_secrets)}")
     return lines
@@ -613,7 +613,7 @@ def preview(before: dict[str, str], after: dict[str, str], show_secrets: bool = 
 
 def save_store(store: Store, home: Path) -> None:
     backups = store.save(home)
-    print(f"{style('done', 'bold', 'green')} - saved to the {scope_text(store)}")
+    print(f"{style('done', 'bold', 'good')} - saved to the {scope_text(store)}")
     if backups:
         print(style(f"backup: {backups[0]}   (undo with: kit env restore)", "dim"))
 
@@ -657,7 +657,7 @@ def finish_session(apply_lines: list[str], hints: list[str]) -> None:
             pass
     print("New terminals pick it up. To use it in this one, run:")
     for line in hints:
-        print(f"  {style(line, 'cyan')}")
+        print(f"  {style(line, 'accent')}")
 
 
 def variable_session(name: str, value: str | None) -> None:
@@ -735,7 +735,7 @@ def print_table(title: str, subtitle: str, rows: list[Var], args: argparse.Names
         if value == "****":
             value = style(value, "dim")
         note = f"  {style(row.note, 'dim')}" if row.note else ""
-        print(f"  {style(name.ljust(width), 'cyan')}  {value}{note}")
+        print(f"  {style(name.ljust(width), 'accent')}  {value}{note}")
     print()
 
 
@@ -862,9 +862,9 @@ def list_path(args: argparse.Namespace) -> int:
             key = normalise(entry)
             notes = []
             if key in ours:
-                notes.append(style("kit env", "green"))
+                notes.append(style("kit env", "good"))
             if not os.path.isdir(entry):
-                notes.append(style("missing", "red"))
+                notes.append(style("missing", "bad"))
             shown.add(key)
             print(f"  {index:>3}  {entry}" + (f"  {'  '.join(notes)}" if notes else ""))
         pending = [f for f in store.path_entries() if normalise(f) not in shown]
@@ -885,7 +885,7 @@ def list_path(args: argparse.Namespace) -> int:
         if expanded != entry:
             notes.append(style(expanded, "dim"))
         if not os.path.isdir(expanded):
-            notes.append(style("missing", "red"))
+            notes.append(style("missing", "bad"))
         print(f"  {index:>3}  {entry}" + (f"  {'  '.join(notes)}" if notes else ""))
     return 0
 

@@ -354,7 +354,7 @@ class Progress:
                 pass
             cells = 24
             filled = int(fraction * cells)
-            bar = style("█" * filled, "cyan") + style("░" * (cells - filled), "dim")
+            bar = style("█" * filled, "accent") + style("░" * (cells - filled), "dim")
             tail = f" {fraction * 100:3.0f}%  {format_duration(position, 0)}/{format_duration(self.duration, 0)}  {speed_text}  {eta}"
             line = f"  {self.label}{bar}{tail}"
             visible = len(f"  {self.label}") + cells + len(tail)
@@ -446,7 +446,7 @@ def run_ffmpeg(ff: FF, args: list[str], *, duration: float, output: Path | None,
         if interrupted.is_set():
             stop_process(process)
             discard()
-            print(style("stopped - partial output removed", "yellow"))
+            print(style("stopped - partial output removed", "accent"))
             raise SystemExit(130)
 
     if process.returncode != 0:
@@ -527,7 +527,7 @@ def may_write(dst: Path, sources: list[Path], args: argparse.Namespace) -> bool:
             error(f"{dst} is a folder")
             return False
         if not ask(f"{dst} already exists. Overwrite?"):
-            print(style("  skipped", "yellow"))
+            print(style("  skipped", "accent"))
             return False
     return True
 
@@ -542,7 +542,7 @@ class Outcome:
 def done_line(dst: Path, started: float, extra: str = "", size: bool = True) -> str:
     size_text = format_size(dst.stat().st_size) if size and dst.is_file() else ""
     parts = [p for p in (size_text, extra, f"{time.monotonic() - started:.1f}s") if p]
-    return f"{style('done', 'bold', 'green')} {dst}  {style('  '.join(parts), 'dim')}"
+    return f"{style('done', 'bold', 'good')} {dst}  {style('  '.join(parts), 'dim')}"
 
 
 def for_each(paths: list[Path], handle: Callable[[Path], Outcome]) -> int:
@@ -560,7 +560,7 @@ def for_each(paths: list[Path], handle: Callable[[Path], Outcome]) -> int:
         skipped = sum(1 for o in outcomes if o.ok is None)
         print(style("SUMMARY", "bold"))
         for outcome in outcomes:
-            mark = {True: style("ok     ", "green"), False: style("failed ", "red"), None: style("skipped", "yellow")}[outcome.ok]
+            mark = {True: style("ok     ", "good"), False: style("failed ", "bad"), None: style("skipped", "accent")}[outcome.ok]
             print(f"  {mark}  {outcome.src}  {style(outcome.detail, 'dim')}")
         tail = [f"{done} done"] + ([f"{len(failed)} failed"] if failed else []) + ([f"{skipped} skipped"] if skipped else [])
         print(f"  {', '.join(tail)}")
@@ -1218,7 +1218,7 @@ def cmd_frames(ff: FF, args: argparse.Namespace, settings: dict) -> int:
         existing = sorted(folder.glob(f"{glob.escape(src.stem)}-*.{args.format}")) if folder.is_dir() else []
         if existing and not args.dry_run and not args.yes:
             if not ask(f"{folder} already has {len(existing)} frame image(s) that may be overwritten. Continue?"):
-                print(style("  skipped", "yellow"))
+                print(style("  skipped", "accent"))
                 return Outcome(src, None)
         before = {p.name for p in existing}
         started_wall = time.time()
@@ -1245,7 +1245,7 @@ def cmd_frames(ff: FF, args: argparse.Namespace, settings: dict) -> int:
             return Outcome(src, True, "dry run")
         written = [p for p in folder.glob(f"{glob.escape(src.stem)}-*.{args.format}") if p.stat().st_mtime >= started_wall - 1]
         detail = f"{len(written)} images, one every {format_duration(args.every)}"
-        print(f"{style('done', 'bold', 'green')} {folder}  {style(f'{detail}  {time.monotonic() - started:.1f}s', 'dim')}")
+        print(f"{style('done', 'bold', 'good')} {folder}  {style(f'{detail}  {time.monotonic() - started:.1f}s', 'dim')}")
         return Outcome(src, True, detail)
 
     return for_each(paths, handle)
@@ -1360,7 +1360,7 @@ def main() -> int:
     try:
         return args.func(ff, args, settings)
     except KeyboardInterrupt:
-        print(style("stopped", "yellow"))
+        print(style("stopped", "accent"))
         return 130
 
 

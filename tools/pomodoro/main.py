@@ -17,6 +17,7 @@ from pathlib import Path
 from kitlib import KIT_HOME, die, style
 from kitlib.settings import SettingsError, set_value, tool_settings
 from kitlib.settings import load as load_settings
+from kitlib.theme import ACCENT, BAD, DIM, GOOD, MUTED, TEXT
 
 try:
     from rich.text import Text
@@ -25,15 +26,14 @@ try:
     from textual.binding import Binding
     from textual.containers import Center, Grid, Horizontal, Vertical
     from textual.screen import ModalScreen
-    from textual.widgets import Button, Digits, Footer, Input, Label, ProgressBar, Static
+    from textual.widgets import Button, Footer, Input, Label, ProgressBar, Static
+
+    from kitlib.tui import BigDigits, KitApp, brand, title
 except ImportError as exc:
     die(f"missing Python package '{exc.name}' - run 'uv sync' in {KIT_HOME} (or re-run the installer)")
 
 PHASE_NAMES = {"focus": "Focus", "short": "Short break", "long": "Long break"}
-ACCENTS = {"focus": "#d97757", "short": "#7fb09b", "long": "#7c9fd4"}
-TEXT = "#e8e3dc"
-MUTED = "#8a847c"
-DIM = "#4a4642"
+ACCENTS = {"focus": ACCENT, "short": GOOD, "long": GOOD}
 
 
 # --- settings and history ------------------------------------------------------
@@ -194,106 +194,39 @@ def desktop_alert(title: str, message: str) -> None:
 
 # --- UI --------------------------------------------------------------------------
 
-# Border-only panels on one flat background (no filled boxes behind rounded corners),
-# one warm accent that shifts colour with the phase.
-CSS = """
-Screen {
-    background: #1a1918;
-    color: #e8e3dc;
-    align: center middle;
-}
+# Focus is kit's yellow; a break turns the phase colour green.
+CSS = f"""
+Screen {{ align: center middle; }}
 
-#topbar { width: 76; max-width: 100%; height: 1; margin-bottom: 1; padding: 0 1; }
-#brand { width: 1fr; }
-#today { width: auto; }
+#topbar {{ width: 76; max-width: 100%; height: 1; margin-bottom: 1; }}
+#brand {{ width: 1fr; }}
+#today {{ width: auto; }}
 
-#card {
-    width: 76;
-    max-width: 100%;
-    height: auto;
-    border: round #3d3935;
-    border-title-color: #d97757;
-    border-title-style: bold;
-    border-subtitle-color: #6b655e;
-    background: #1a1918;
-    padding: 1 2 0 2;
-}
-#phase { width: 100%; height: 1; content-align: center middle; color: #d97757; text-style: bold; }
-#clock { width: auto; color: #f5f0e8; margin: 1 0 1 0; }
-#progress { width: auto; height: 1; }
-#progress Bar { width: 50; }
-#progress Bar > .bar--bar { color: #d97757; background: #2e2b28; }
-#progress Bar > .bar--complete { color: #d97757; }
-#progress PercentageStatus { color: #8a847c; }
-#dots { width: 100%; height: 1; content-align: center middle; margin: 1 0 1 0; }
+#card {{ width: 76; max-width: 100%; height: auto; padding: 1 2 0 2; }}
+#phase {{ width: 100%; height: 1; content-align: center middle; color: {ACCENT}; text-style: bold; }}
+#clock {{ color: {TEXT}; margin: 1 0 1 0; }}
+#progress {{ width: auto; height: 1; }}
+#progress Bar {{ width: 50; }}
+#dots {{ width: 100%; height: 1; content-align: center middle; margin: 1 0 1 0; }}
+#task {{ margin: 0 0 1 0; }}
 
-#task {
-    margin: 0 0 1 0;
-    border: round #3d3935;
-    background: #1a1918;
-    color: #e8e3dc;
-    padding: 0 1;
-}
-#task:focus { border: round #d97757; background: #1a1918; }
-#task > .input--placeholder { color: #6b655e; }
+#controls {{ width: 100%; height: 3; align: center middle; margin-bottom: 1; }}
+#controls Button {{ margin: 0 1 0 0; }}
+#start {{ width: 14; }}
+#settings {{ margin: 0; }}
 
-#controls { width: 100%; height: 3; align: center middle; margin-bottom: 1; }
-Button {
-    min-width: 7;
-    width: auto;
-    height: 3;
-    margin: 0 1 0 0;
-    padding: 0 1;
-    border: round #3d3935;
-    background: #1a1918;
-    color: #e8e3dc;
-    text-style: none;
-}
-Button:hover { background: #1a1918; border: round #8a847c; color: #ffffff; text-style: none; }
-Button.-active { background: #262422; border: round #8a847c; }
-Button:focus { text-style: none; }
-#start { width: 13; }
-Button.primary { border: round #d97757; color: #d97757; text-style: bold; }
-Button.primary:hover { border: round #f0a07e; color: #f0a07e; text-style: bold; }
-#settings { margin: 0; }
+.-break #phase {{ color: {GOOD}; }}
+.-break #card {{ border-title-background: {GOOD}; }}
+.-break #progress Bar > .bar--bar, .-break #progress Bar > .bar--complete {{ color: {GOOD}; }}
+.-break Button.primary {{ background: {GOOD}; border: heavy {GOOD}; }}
+.-break #task:focus {{ border: heavy {GOOD}; }}
 
-.-short #phase { color: #7fb09b; }
-.-short #card { border-title-color: #7fb09b; }
-.-short #progress Bar > .bar--bar, .-short #progress Bar > .bar--complete { color: #7fb09b; }
-.-short Button.primary { border: round #7fb09b; color: #7fb09b; }
-.-short #task:focus { border: round #7fb09b; }
-.-long #phase { color: #7c9fd4; }
-.-long #card { border-title-color: #7c9fd4; }
-.-long #progress Bar > .bar--bar, .-long #progress Bar > .bar--complete { color: #7c9fd4; }
-.-long Button.primary { border: round #7c9fd4; color: #7c9fd4; }
-.-long #task:focus { border: round #7c9fd4; }
-
-Footer { background: #1a1918; color: #8a847c; }
-Footer FooterKey { background: #1a1918; }
-Footer FooterKey .footer-key--key { background: #1a1918; color: #d97757; text-style: bold; }
-Footer FooterKey .footer-key--description { color: #8a847c; }
-Footer FooterKey:hover { background: #262422; }
-
-SettingsScreen { align: center middle; background: rgba(0, 0, 0, 0.6); }
-#dialog {
-    width: 50;
-    max-width: 100%;
-    height: auto;
-    border: round #d97757;
-    border-title-color: #d97757;
-    border-title-style: bold;
-    background: #211f1d;
-    padding: 1 2;
-}
-#fields { grid-size: 2; grid-columns: 1fr 12; grid-rows: 3; grid-gutter: 0 1; height: auto; }
-#fields Label { height: 3; width: 100%; content-align: left middle; color: #e8e3dc; }
-#fields Input { border: round #3d3935; background: #211f1d; padding: 0 1; }
-#fields Input:focus { border: round #d97757; background: #211f1d; }
-#dialog Button { background: #211f1d; }
-#dialog Button:hover { background: #211f1d; }
-#settings-error { color: #e5857a; height: auto; }
-#dialog-buttons { width: 100%; height: 3; align: right middle; margin-top: 1; }
-#dialog-buttons #save { margin: 0; }
+#dialog {{ width: 50; max-width: 100%; height: auto; }}
+#fields {{ grid-size: 2; grid-columns: 1fr 12; grid-rows: 3; grid-gutter: 0 1; height: auto; }}
+#fields Label {{ height: 3; width: 100%; content-align: left middle; text-style: bold; }}
+#settings-error {{ color: {BAD}; height: auto; }}
+#dialog-buttons {{ width: 100%; height: 3; align: right middle; margin-top: 1; }}
+#dialog-buttons Button {{ margin: 0 0 0 1; }}
 """
 
 SETTING_FIELDS = [
@@ -312,16 +245,16 @@ class SettingsScreen(ModalScreen):
         self.settings = settings
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="dialog") as dialog:
-            dialog.border_title = " Settings "
+        with Vertical(id="dialog", classes="dialog") as dialog:
+            dialog.border_title = title("Settings")
             with Grid(id="fields"):
                 for key, label in SETTING_FIELDS:
                     yield Label(label)
                     yield Input(str(getattr(self.settings, key)), type="integer", id=f"set-{key}")
             yield Static("", id="settings-error")
             with Horizontal(id="dialog-buttons"):
-                yield Button("Cancel", id="cancel")
-                yield Button("Save", id="save", classes="primary")
+                yield Button("CANCEL", id="cancel")
+                yield Button("SAVE", id="save", classes="primary")
 
     def on_mount(self) -> None:
         self.query_one("#set-focus", Input).focus()
@@ -352,7 +285,7 @@ class SettingsScreen(ModalScreen):
         self.dismiss(None)
 
 
-class PomodoroApp(App):
+class PomodoroApp(KitApp):
     TITLE = "kit pomodoro"
     CSS = CSS
     AUTO_FOCUS = None
@@ -380,22 +313,22 @@ class PomodoroApp(App):
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="topbar"):
-            yield Static(Text.assemble(("✻ ", f"bold {ACCENTS['focus']}"), ("kit pomodoro", f"bold {TEXT}")), id="brand")
+            yield Static(brand("kit pomodoro"), id="brand")
             yield Static("", id="today")
-        with Vertical(id="card"):
+        with Vertical(id="card", classes="slab"):
             yield Static("", id="phase")
             with Center():
-                yield Digits(self.timer.clock(), id="clock")
+                yield BigDigits(self.timer.clock(), id="clock", short_below=30)
             with Center():
                 yield ProgressBar(total=100, show_eta=False, id="progress")
             yield Static("", id="dots")
             yield Input(self.initial_task, placeholder="What are you working on?", id="task")
             with Horizontal(id="controls"):
-                yield Button("▶ Start", id="start", classes="primary")
-                yield Button("↺ Reset", id="reset")
-                yield Button("» Skip", id="skip")
-                yield Button("−1m", id="less")
-                yield Button("+1m", id="more")
+                yield Button("▶ START", id="start", classes="primary")
+                yield Button("↺ RESET", id="reset")
+                yield Button("» SKIP", id="skip")
+                yield Button("−1M", id="less")
+                yield Button("+1M", id="more")
                 yield Button("⚙", id="settings")
         yield Footer()
 
@@ -434,8 +367,7 @@ class PomodoroApp(App):
         timer = self.timer
         accent = ACCENTS[timer.phase]
         main = self.screen_stack[0]  # not self.screen: that is the settings dialog while it's open
-        main.set_class(timer.phase == "short", "-short")
-        main.set_class(timer.phase == "long", "-long")
+        main.set_class(timer.phase != "focus", "-break")
 
         state = "running" if timer.running else "paused" if timer.started else "ready"
         phase = Text()
@@ -444,7 +376,7 @@ class PomodoroApp(App):
         phase.append(state, style=f"not bold {MUTED}")
         self.query_one("#phase", Static).update(phase)
 
-        clock = self.query_one("#clock", Digits)
+        clock = self.query_one("#clock", BigDigits)
         if clock.value != timer.clock():
             clock.update(timer.clock())
         self.query_one("#progress", ProgressBar).update(total=timer.total, progress=timer.elapsed)
@@ -459,11 +391,11 @@ class PomodoroApp(App):
         self.query_one("#dots", Static).update(dots)
 
         card = self.query_one("#card")
-        card.border_title = f" {PHASE_NAMES[timer.phase]} "
+        card.border_title = title(PHASE_NAMES[timer.phase])
         card.border_subtitle = f" {self.settings.focus} · {self.settings.short} · {self.settings.long} min "
 
         start = self.query_one("#start", Button)
-        label = "‖ Pause" if timer.running else ("▶ Resume" if timer.started else "▶ Start")
+        label = "‖ PAUSE" if timer.running else ("▶ RESUME" if timer.started else "▶ START")
         if str(start.label) != label:
             start.label = label
 

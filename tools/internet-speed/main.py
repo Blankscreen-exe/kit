@@ -204,8 +204,8 @@ class Progress:
         self.frame = (self.frame + 1) % len(self.frames)
         width = 24
         filled = max(0, min(width, round(fraction * width)))
-        bar = style(self.full * filled, "cyan") + style(self.empty * (width - filled), "dim")
-        sys.stdout.write(f"\r  {style(self.frames[self.frame], 'cyan')} {phase:<9} {bar}  {detail}\x1b[K")
+        bar = style(self.full * filled, "accent") + style(self.empty * (width - filled), "dim")
+        sys.stdout.write(f"\r  {style(self.frames[self.frame], 'accent')} {phase:<9} {bar}  {detail}\x1b[K")
         sys.stdout.flush()
 
     def clear(self) -> None:
@@ -217,7 +217,7 @@ class Progress:
         if not self.enabled:
             return
         self.clear()
-        print(f"  {style(self.check, 'green')} {phase:<9} {text}", flush=True)
+        print(f"  {style(self.check, 'good')} {phase:<9} {text}", flush=True)
 
 
 def human_bytes(size: int) -> str:
@@ -299,22 +299,22 @@ def summarize_speed(results: list[dict]) -> float | None:
 def rating(download: float, latency: float) -> tuple[str, str, str]:
     """(label, what it's good for, colour)."""
     if download >= 200:
-        result = ("Excellent", "4K streaming on several screens, huge downloads and gaming", "green")
+        result = ("Excellent", "4K streaming on several screens, huge downloads and gaming", "good")
     elif download >= 50:
-        result = ("Good", "HD streaming, video calls and large downloads", "green")
+        result = ("Good", "HD streaming, video calls and large downloads", "good")
     elif download >= 15:
-        result = ("Fair", "streaming and video calls; big downloads take a while", "yellow")
+        result = ("Fair", "streaming and video calls; big downloads take a while", "accent")
     elif download >= 5:
-        result = ("Slow", "browsing and SD video; video calls may stutter", "yellow")
+        result = ("Slow", "browsing and SD video; video calls may stutter", "accent")
     else:
-        result = ("Very slow", "basic browsing only", "red")
-    if latency > 100 and result[2] == "green":
-        result = (result[0], result[1] + " (but high latency hurts calls and gaming)", "yellow")
+        result = ("Very slow", "basic browsing only", "bad")
+    if latency > 100 and result[2] == "good":
+        result = (result[0], result[1] + " (but high latency hurts calls and gaming)", "accent")
     return result
 
 
 def latency_colour(ms: float) -> str:
-    return "green" if ms < 40 else "yellow" if ms < 100 else "red"
+    return "good" if ms < 40 else "accent" if ms < 100 else "bad"
 
 
 def run_speed_test(args: argparse.Namespace) -> int:
@@ -378,11 +378,11 @@ def run_speed_test(args: argparse.Namespace) -> int:
     if args.show_ip and meta.get("ip"):
         rows.append(("IP", meta["ip"]))
     rows.append(("Latency", style(f"{latency:.0f} ms", "bold", latency_colour(latency)) + style(f"   jitter {jitter:.1f} ms", "dim")))
-    colour = verdict[2] if verdict else "cyan"
+    colour = verdict[2] if verdict else "accent"
     if download is not None:
         rows.append(("Download", style(f"{download:.1f} Mbps", "bold", colour)))
     if upload is not None:
-        rows.append(("Upload", style(f"{upload:.1f} Mbps", "bold", "cyan")))
+        rows.append(("Upload", style(f"{upload:.1f} Mbps", "bold", "accent")))
     if verdict:
         rows.append(("Rating", style(verdict[0], "bold", verdict[2]) + f" - {verdict[1]}"))
     print()
@@ -431,11 +431,11 @@ def ping_main(argv: list[str]) -> int:
                 times.append(ms)
                 print(f"  seq={seq}  connected in {style(f'{ms:.1f} ms', latency_colour(ms))}")
             except TimeoutError:
-                print(f"  seq={seq}  {style('timed out', 'red')} after {args.timeout:g}s")
+                print(f"  seq={seq}  {style('timed out', 'bad')} after {args.timeout:g}s")
             except ConnectionRefusedError:
-                print(f"  seq={seq}  {style('refused', 'red')} - nothing is listening on port {args.port}")
+                print(f"  seq={seq}  {style('refused', 'bad')} - nothing is listening on port {args.port}")
             except OSError as exc:
-                print(f"  seq={seq}  {style('failed', 'red')} - {exc.strerror or exc}")
+                print(f"  seq={seq}  {style('failed', 'bad')} - {exc.strerror or exc}")
             finally:
                 sock.close()
             if seq < args.count:
@@ -446,7 +446,7 @@ def ping_main(argv: list[str]) -> int:
     received = len(times)
     loss = 100 * (sent - received) / sent
     print()
-    summary = f"  {sent} sent, {received} connected, {style(f'{loss:.0f}% loss', 'green' if loss == 0 else 'red')}"
+    summary = f"  {sent} sent, {received} connected, {style(f'{loss:.0f}% loss', 'good' if loss == 0 else 'bad')}"
     if times:
         summary += f"   min/avg/max {min(times):.1f} / {statistics.mean(times):.1f} / {max(times):.1f} ms"
     print(summary)

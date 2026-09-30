@@ -346,7 +346,7 @@ def _notify(stream, force_tty: bool = False) -> None:
     today = date.today().isoformat()
     if behind > 0 and state.get("notice_shown") != today and (force_tty or stream.isatty()):
         message = f"kit: an update is available ({_plural(behind, 'new commit')}) - run: kit update"
-        print(style(message, "yellow", stream=stream), file=stream)
+        print(style(message, "accent", stream=stream), file=stream)
         state["notice_shown"] = today
         changed = True
 
@@ -382,7 +382,7 @@ def _cli_log(line: str) -> None:
     elif line.startswith("warning: "):
         warn(line[len("warning: "):])
     elif line.startswith("updated from") or line.startswith("kit is up to date"):
-        print(style(line, "green"))
+        print(style(line, "good"))
     else:
         print(line, flush=True)
 
@@ -396,12 +396,12 @@ def _print_check(result: dict) -> int:
         return 1
     print(f"branch {style(result['branch'], 'bold')} tracking {result['upstream']}")
     if result["behind"]:
-        print(style(f"{_plural(result['behind'], 'new commit')} available:", "yellow"))
+        print(style(f"{_plural(result['behind'], 'new commit')} available:", "accent"))
         for commit in result["incoming"]:
             detail = style(f"({commit['author']}, {commit['date'][:10]})", "dim")
             print(f"  {commit['hash'][:7]}  {commit['subject']}  {detail}")
     else:
-        print(style("kit is up to date", "green"))
+        print(style("kit is up to date", "good"))
     if result["ahead"]:
         print(f"{_plural(result['ahead'], 'local commit')} not pushed yet")
     if result["dirty"]:

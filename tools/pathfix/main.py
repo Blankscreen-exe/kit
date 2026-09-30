@@ -18,11 +18,11 @@ BEGIN_MARKER = "# >>> kit pathfix >>>"
 END_MARKER = "# <<< kit pathfix <<<"
 
 STATUS_STYLES = {
-    "ok": "green",
-    "empty": "yellow",
-    "duplicate": "yellow",
-    "redundant": "yellow",
-    "missing": "red",
+    "ok": "good",
+    "empty": "accent",
+    "duplicate": "accent",
+    "redundant": "accent",
+    "missing": "bad",
 }
 
 
@@ -88,7 +88,7 @@ def print_scope(title: str, subtitle: str, rows: list[Row], issues_only: bool) -
     if not rows:
         print(style("  (empty)", "dim"))
     elif not shown:
-        print(style("  no problems", "green"))
+        print(style("  no problems", "good"))
     else:
         width = min(max(len(r.raw) for r in shown), 70)
         for row in shown:
@@ -201,7 +201,7 @@ def windows_main(args: argparse.Namespace) -> int:
         write_user_path(value, subkey)
         if subkey == USER_ENV_KEY:
             broadcast_environment_change()
-        print(f"{style('done', 'bold', 'green')} - previous value saved to {saved}. Open a new terminal to use it.")
+        print(f"{style('done', 'bold', 'good')} - previous value saved to {saved}. Open a new terminal to use it.")
         return 0
 
     if args.path_string is not None:
@@ -253,7 +253,7 @@ def windows_main(args: argparse.Namespace) -> int:
     write_user_path(new_value, subkey)
     if subkey == USER_ENV_KEY:
         broadcast_environment_change()
-    print(f"{style('done', 'bold', 'green')} - user PATH now has {len(new_entries)} entries. Open a new terminal to use it.")
+    print(f"{style('done', 'bold', 'good')} - user PATH now has {len(new_entries)} entries. Open a new terminal to use it.")
     print(style(f"backup: {saved}   (undo with: kit pathfix --restore \"{saved}\")", "dim"))
     return 0
 
@@ -337,7 +337,7 @@ def posix_main(args: argparse.Namespace) -> int:
             changed, backup = remove_block(rc, home)
             if changed:
                 changed_any = True
-                print(f"{style('removed', 'bold', 'green')} kit pathfix block from {rc}" + style(f"  (backup: {backup})", "dim"))
+                print(f"{style('removed', 'bold', 'good')} kit pathfix block from {rc}" + style(f"  (backup: {backup})", "dim"))
         if not changed_any:
             print("no kit pathfix block found - nothing to undo")
         else:
@@ -376,7 +376,7 @@ def posix_main(args: argparse.Namespace) -> int:
         changed, backup = write_block(rc, args.keep_missing, home)
         if changed:
             note = style(f"  (backup: {backup})", "dim") if backup else ""
-            print(f"{style('updated', 'bold', 'green')} {rc}{note}")
+            print(f"{style('updated', 'bold', 'good')} {rc}{note}")
         else:
             print(f"{rc} already up to date")
     print("open a new terminal (or run: source ~/.bashrc) for it to take effect; undo with: kit pathfix --undo")

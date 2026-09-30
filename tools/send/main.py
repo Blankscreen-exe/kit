@@ -29,8 +29,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
-from kitlib import die, style
-from kitlib.browser import open_app_window
+from kitlib import die, style, theme
+from kitlib.browser import no_display, open_app_window
 from kitlib.qr import make_qr, qr_lines
 from kitlib.settings import tool_settings
 from kitlib.webserver import KitHandler
@@ -464,15 +464,6 @@ def public_address() -> str:
     return f"[{address}]" if ":" in address else address
 
 
-def no_display() -> bool:
-    """True when a window can't be shown here: an SSH session, or Linux without a desktop."""
-    if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
-        return True
-    if os.name == "nt" or sys.platform == "darwin":
-        return False
-    return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
-
-
 # --- the app: shares, and how the outside world reaches them -------------------------
 
 class App:
@@ -583,7 +574,7 @@ class App:
         server = self._listen("0.0.0.0", self.port, self.explicit_port)
         port = server.server_address[1]
         if port != self.port:
-            log(style(f"port {self.port} was taken, so links use {port} - that's the one to open", "yellow"))
+            log(style(f"port {self.port} was taken, so links use {port} - that's the one to open", "accent"))
         self.base = f"http://{address}:{port}"
 
     def _start_tunnel(self) -> None:
@@ -692,7 +683,7 @@ class ShareHandler(KitHandler, BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def send_page(self, status: int, **values: str) -> None:
-        page = (TOOL_DIR / "download.html").read_text(encoding="utf-8")
+        page = theme.inject((TOOL_DIR / "download.html").read_text(encoding="utf-8"))
         values.setdefault("button", "")
         values.setdefault("facts", "")
         for key, value in values.items():
@@ -801,8 +792,8 @@ class ShareHandler(KitHandler, BaseHTTPRequestHandler):
 
         who = style(transfer.who, "dim")
         name = style(share.name, "bold")
-        log(f"{style('sending', 'cyan')}   {name} to {who}" if fresh
-            else f"{style('resuming', 'cyan')}  {name} to {who} from {100 * start / max(size, 1):.0f}%")
+        log(f"{style('sending', 'accent')}   {name} to {who}" if fresh
+            else f"{style('resuming', 'accent')}  {name} to {who} from {100 * start / max(size, 1):.0f}%")
         try:
             with share.path.open("rb") as handle:
                 handle.seek(start)
@@ -822,11 +813,11 @@ class ShareHandler(KitHandler, BaseHTTPRequestHandler):
         seconds = max(time.time() - transfer.began, 0.001)
         if transfer.sent == length and end == size - 1:
             share.downloads += 1
-            log(f"{style('sent', 'bold', 'green')}      {name} to {who}  {human_bytes(transfer.sent)} "
+            log(f"{style('sent', 'bold', 'good')}      {name} to {who}  {human_bytes(transfer.sent)} "
                 f"in {human_time(seconds)} ({human_bytes(transfer.sent / seconds)}/s)")
             app.history.record(share)
         elif transfer.sent < length:
-            log(f"{style('stopped', 'yellow')}   {name} to {who} at "
+            log(f"{style('stopped', 'accent')}   {name} to {who} at "
                 f"{100 * (start + transfer.sent) / max(size, 1):.0f}% - they can resume it")
         app.check_finished()
 
@@ -873,7 +864,7 @@ class ControlHandler(KitHandler, BaseHTTPRequestHandler):
         self.send_json(status, {"error": message})
 
     def send_page(self, status: int, name: str, extra: dict | None = None) -> None:
-        page = (TOOL_DIR / name).read_text(encoding="utf-8")
+        page = theme.inject((TOOL_DIR / name).read_text(encoding="utf-8"))
         headers = {"Content-Security-Policy": PAGE_CSP, "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"}
         self.send_body(status, page.encode("utf-8"), "text/html; charset=utf-8", {**headers, **(extra or {})})
 
@@ -972,7 +963,7 @@ class ControlHandler(KitHandler, BaseHTTPRequestHandler):
         if not link:
             raise ApiError("the link isn't ready yet", HTTPStatus.CONFLICT)
         buffer = io.BytesIO()
-        make_qr(link).save(buffer, kind="svg", scale=4, border=2, dark="#1a1918", light="#ffffff")
+        make_qr(link).save(buffer, kind="svg", scale=4, border=2, dark=theme.BG, light="#ffffff")
         self.send_body(HTTPStatus.OK, buffer.getvalue(), "image/svg+xml")
 
     def do_POST(self) -> None:
@@ -1064,7 +1055,7 @@ class ControlHandler(KitHandler, BaseHTTPRequestHandler):
                 errors.append(str(exc))
                 continue
             share = app.new_share(path.name, size, path, expire, limit)
-            log(f"{style('added', 'green')}     {style(share.name, 'bold')}  {style(human_bytes(size), 'dim')}")
+            log(f"{style('added', 'good')}     {style(share.name, 'bold')}  {style(human_bytes(size), 'dim')}")
             added.append(self.with_link(share))
         if added:
             app.auto_exit = False  # someone is working in the window; don't pull it away
@@ -1101,7 +1092,7 @@ class ControlHandler(KitHandler, BaseHTTPRequestHandler):
             raise ApiError(f"{name} didn't arrive whole")
         share = app.new_share(name, length, target, expire, limit, copied=True)
         app.auto_exit = False
-        log(f"{style('added', 'green')}     {style(share.name, 'bold')}  {style(human_bytes(length), 'dim')}"
+        log(f"{style('added', 'good')}     {style(share.name, 'bold')}  {style(human_bytes(length), 'dim')}"
             f"  {style('(dropped on the window)', 'dim')}")
         return self.with_link(share)
 
@@ -1136,9 +1127,9 @@ class ControlHandler(KitHandler, BaseHTTPRequestHandler):
             def switch() -> None:
                 try:
                     app.set_mode(mode)
-                    log(f"{style('links', 'cyan')}     now reach {app.describe_mode()}")
+                    log(f"{style('links', 'accent')}     now reach {app.describe_mode()}")
                 except SetupError as exc:
-                    log(style(f"couldn't switch: {exc}", "red"))
+                    log(style(f"couldn't switch: {exc}", "bad"))
             threading.Thread(target=switch, daemon=True).start()
         return self.state()
 
@@ -1234,7 +1225,7 @@ def main() -> int:
         threading.Thread(target=control.serve_forever, daemon=True).start()
         ui = f"http://127.0.0.1:{control.server_address[1]}/?token={control.token}"
         # First URL printed: `kit share` takes it as the tool's address.
-        print(f"{style('kit send', 'bold', 'cyan')}  window: {ui}", flush=True)
+        print(f"{style('kit send', 'bold', 'accent')}  window: {ui}", flush=True)
         if args.open is not False:
             opened = True
             if args.window:
@@ -1242,7 +1233,7 @@ def main() -> int:
             else:
                 opened = webbrowser.open(ui)
             if not opened:
-                print(style("  couldn't open a browser - open the address above yourself", "yellow"))
+                print(style("  couldn't open a browser - open the address above yourself", "accent"))
 
     try:
         try:
@@ -1250,13 +1241,13 @@ def main() -> int:
         except SetupError as exc:
             if headless or args.files:
                 die(str(exc))
-            log(style(f"links can't reach {mode} yet: {exc} - try again from the window", "red"))
+            log(style(f"links can't reach {mode} yet: {exc} - try again from the window", "bad"))
 
         if headless:
-            print(f"{style('kit send', 'bold', 'cyan')}  links reach {app.describe_mode()}")
+            print(f"{style('kit send', 'bold', 'accent')}  links reach {app.describe_mode()}")
         if app.shares and app.base:
             many = len(app.shares) != 1
-            print(f"{style('kit send', 'bold', 'cyan')}  {len(app.shares)} file{'s' if many else ''}, "
+            print(f"{style('kit send', 'bold', 'accent')}  {len(app.shares)} file{'s' if many else ''}, "
                   f"{'links last' if many else 'link lasts'} {human_time(expire_seconds)}"
                   f"{', one download each' if limit == 1 else f', {limit} downloads each' if limit else ''}")
             print_links(app, args.qr)
@@ -1265,7 +1256,7 @@ def main() -> int:
         if app.internet_kind == "public" and app.mode == "internet":
             port = app.base.rsplit(":", 1)[-1]
             print(style(f"\n  --public: port {port} has to be open in this machine's firewall "
-                        "(and forwarded by the router, if there is one)", "yellow"))
+                        "(and forwarded by the router, if there is one)", "accent"))
         print(style("\n  kit has to keep running while people download - Ctrl+C here stops sharing"
                     + ("" if headless else ", and so does Stop in the window"), "dim"), flush=True)
 

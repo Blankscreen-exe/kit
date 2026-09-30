@@ -16,14 +16,14 @@ kit fetch --list-art
 - `--art` takes a name from `art/` (e.g. `--art default`) or a path to any text file.
   Make your own art the default with `kit config set fetch.art <name or path>` (or `KIT_FETCH_ART`).
 - `--figlet TEXT` draws a figlet banner as the art instead; `-f` picks its font.
-- `--color` sets the colour of the labels and of art without colour tokens (default: cyan).
+- `--color` sets the colour of the labels and of art without colour tokens (default: `concrete`, kit's own yellow).
 - The art sits beside the info when the terminal is wide enough, otherwise above it. `--stack` always puts it above.
 
 ## Art files
 
 Plain text. A colour token switches colour from that point on, and the colour carries over to the next lines:
 
-`{red}` `{green}` `{yellow}` `{blue}` `{magenta}` `{cyan}` `{white}` `{gray}` `{black}` `{accent}` `{bold}` `{reset}`
+`{red}` `{green}` `{yellow}` `{blue}` `{magenta}` `{cyan}` `{concrete}` `{white}` `{gray}` `{black}` `{accent}` `{bold}` `{reset}`
 
 `{accent}` is the `--color` colour. A file with no tokens at all is drawn in that colour.
 
@@ -44,7 +44,7 @@ Set these once with `kit config set`, or edit the settings file with `kit config
 | Setting | Default | What it does |
 |---|---|---|
 | `fetch.art` | *(art for this OS)* | Art name or text file path. `$KIT_FETCH_ART` overrides it. |
-| `fetch.color` | `cyan` | Colour of the labels and of art without colour tokens |
+| `fetch.color` | `concrete` | Colour of the labels and of art without colour tokens |
 | `fetch.palette` | `true` | Show the colour swatches (`--no-palette` / `--palette`) |
 | `fetch.stack` | `false` | Always put the art above the info (`--stack` / `--no-stack`) |
 

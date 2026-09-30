@@ -357,7 +357,7 @@ function showTransfers(card, share) {
       row = document.createElement("div");
       row.className = "transfer";
       row.id = id;
-      row.innerHTML = `<div class="row"><span class="who"></span><span class="spacer"></span><span class="meta pace"></span></div><div class="bar"><i></i></div>`;
+      row.innerHTML = `<div class="row"><span class="who"></span><span class="spacer"></span><span class="meta pace"></span></div><div class="progress"><i></i></div>`;
       row.querySelector(".who").textContent = "sending to " + transfer.who;
       box.appendChild(row);
     }

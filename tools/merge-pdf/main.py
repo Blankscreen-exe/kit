@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import BinaryIO
 from urllib.parse import parse_qs, unquote, urlparse
 
-from kitlib import KIT_HOME, die, style, warn
+from kitlib import KIT_HOME, die, style, theme, warn
 from kitlib.webserver import KitHandler
 from kitlib.browser import open_app_window
 from kitlib.settings import tool_settings
@@ -67,11 +67,13 @@ CHOICES = {
 
 Image.MAX_IMAGE_PIXELS = 400_000_000  # big scans are fine; Pillow's default warns at ~90 MP
 
-UNAUTHORIZED_PAGE = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>merge-pdf</title></head>
-<body style="font:15px system-ui,sans-serif;max-width:560px;margin:80px auto;padding:0 20px">
-<h1 style="font-size:20px">merge-pdf needs its access token</h1>
-<p>Open the full address printed in the terminal where you ran <code>kit merge-pdf</code>
-(it ends in <code>?token=...</code>).</p></body></html>"""
+UNAUTHORIZED_PAGE = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>merge-pdf</title>
+<!--kit-theme-->
+<style>body { min-height: 100vh; display: grid; place-items: center; padding: 16px; } .slab { max-width: 460px; padding: 22px 24px; }</style>
+</head><body><div class="slab">
+<h1><span class="mark">■</span>kit merge-pdf</h1>
+<p>This page needs its access token. Open the full address printed in the terminal where you ran
+<code>kit merge-pdf</code> (it ends in <code>?token=...</code>).</p></div></body></html>"""
 
 
 class ApiError(Exception):
@@ -528,7 +530,7 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
         self.send_json(status, {"error": message})
 
     def send_page(self, status: int, html: str) -> None:
-        self.send_body(status, html.encode("utf-8"), "text/html; charset=utf-8", {
+        self.send_body(status, theme.inject(html).encode("utf-8"), "text/html; charset=utf-8", {
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
                                        "connect-src 'self'; img-src 'self' data: blob:; base-uri 'none'; form-action 'none'",
             "X-Frame-Options": "DENY",
@@ -609,7 +611,7 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
         except ApiError as exc:
             return self.send_error_json(exc.status, str(exc))
         except Exception as exc:  # a broken image file shouldn't take the server down
-            log(f"{style('error', 'red')}  {url.path}: {exc}")
+            log(f"{style('error', 'bad')}  {url.path}: {exc}")
             return self.send_error_json(HTTPStatus.INTERNAL_SERVER_ERROR, f"{type(exc).__name__}: {exc}")
 
     def do_POST(self) -> None:
@@ -648,12 +650,12 @@ class Handler(KitHandler, BaseHTTPRequestHandler):
                 return self.send_error_json(HTTPStatus.NOT_FOUND, "not found")
             result = route(session, self.read_json())
             if path == "/api/create":
-                log(f"{style('wrote', 'green')}  {result['output']['path']}  ({result['output']['pages']} pages)")
+                log(f"{style('wrote', 'good')}  {result['output']['path']}  ({result['output']['pages']} pages)")
             return self.send_json(HTTPStatus.OK, result)
         except ApiError as exc:
             return self.send_error_json(exc.status, str(exc))
         except Exception as exc:
-            log(f"{style('error', 'red')}  {path}: {exc}")
+            log(f"{style('error', 'bad')}  {path}: {exc}")
             return self.send_error_json(HTTPStatus.INTERNAL_SERVER_ERROR, f"{type(exc).__name__}: {exc}")
 
 
@@ -705,14 +707,14 @@ def main() -> int:
             output = session.create()["output"]
         except ApiError as exc:
             die(str(exc))
-        print(f"{style('wrote', 'bold', 'green')} {output['path']}  ({output['pages']} pages)")
+        print(f"{style('wrote', 'bold', 'good')} {output['path']}  ({output['pages']} pages)")
         return 0
 
     token = secrets.token_urlsafe(24)
     server = MergeServer(session, token)
     url = f"http://127.0.0.1:{server.server_address[1]}/?token={token}"
     count = len(session.order)
-    print(f"{style('merge-pdf', 'bold', 'cyan')}  {count} image{'' if count == 1 else 's'} to arrange")
+    print(f"{style('merge-pdf', 'bold', 'accent')}  {count} image{'' if count == 1 else 's'} to arrange")
     print(f"  open  {style(url, 'bold')}")
     print(style("  arrange the pages, click Create PDF, then Done - or press Ctrl+C to stop", "dim"), flush=True)
     if args.window:

@@ -35,7 +35,7 @@ def main(args: list[str]) -> int:
     server = start_server(options.port or settings["hub_port"], options.port is not None, token, options.lan)
     host_shown = server.own_ip if options.lan else "127.0.0.1"
     url = f"http://{host_shown}:{server.server_address[1]}/?token={token}"
-    print(f"{style('kit hub', 'bold', 'cyan')}  the kit dashboard")
+    print(f"{style('kit hub', 'bold', 'accent')}  the kit dashboard")
     print(f"  open      {style(url, 'bold')}")
     print(f"  settings  {config_path()}")
     if options.lan:

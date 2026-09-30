@@ -31,7 +31,7 @@ from urllib.error import HTTPError, URLError  # noqa: E402
 from urllib.parse import parse_qs, urlparse  # noqa: E402
 from urllib.request import Request, urlopen  # noqa: E402
 
-from kitlib import die, style, warn
+from kitlib import die, style, theme, warn
 from kitlib.browser import no_display, open_app_window
 from kitlib.webserver import KitHandler
 from kitlib.settings import tool_settings
@@ -694,7 +694,7 @@ class ControlHandler(KitHandler, BaseHTTPRequestHandler):
         self.send_body(status, json.dumps(payload).encode("utf-8"), "application/json; charset=utf-8")
 
     def send_page(self, status: int, name: str) -> None:
-        page = (TOOL_DIR / name).read_bytes()
+        page = theme.inject((TOOL_DIR / name).read_text(encoding="utf-8")).encode("utf-8")
         self.send_body(status, page, "text/html; charset=utf-8",
                        {"Content-Security-Policy": PAGE_CSP, "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"})
 
@@ -792,7 +792,7 @@ def cmd_window(port: int, discovery_port: int, passphrase: str) -> int:
 
     # The window's own address first: kit's runner and hub take the first URL printed as the
     # tool's, and this one - loopback - is never announced to anyone.
-    print(f"{style('kit notify', 'bold', 'cyan')}  window: {ui}")
+    print(f"{style('kit notify', 'bold', 'accent')}  window: {ui}")
     print(style(f"  this machine: http://{window.me['address']}/?t={token}", "dim"))
     print(style("  reachable on this network, and discoverable" if passphrase else f"  {passphrase_hint()}", "dim"))
     print(style("  closing the window stops it, and so does Ctrl+C here", "dim"), flush=True)
