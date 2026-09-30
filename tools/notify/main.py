@@ -44,6 +44,8 @@ MAX_BODY = 8_000
 DISCOVER_MAGIC = "kit-notify-discover-v1"
 DISCOVER_REPLY_MAGIC = "kit-notify-here-v1"
 DISCOVER_WAIT = 1.5  # seconds to collect replies to a broadcast
+DISCOVER_SENDS = 3  # copies of each query sent, since a broadcast lost on Wi-Fi is never resent
+DISCOVER_RESEND = 0.5  # seconds between those copies
 URL_RE = re.compile(r"https?://[^\s'\"<>]+")
 REPLAY_WINDOW = 30  # seconds a discovery query/reply stays valid for - limits replaying a captured one
 SEARCH_EVERY = 30  # seconds between the window's own discovery rounds
@@ -249,11 +251,16 @@ def broadcast_targets() -> list[tuple[str, str]]:
 
 
 def discover_on_lan(discovery_port: int, passphrase: str) -> list[dict]:
-    """Broadcasts a signed query on every network and collects verified replies for DISCOVER_WAIT seconds."""
+    """Broadcasts a signed query on every network and collects verified replies for DISCOVER_WAIT seconds.
+
+    The query goes out DISCOVER_SENDS times, not once: Wi-Fi never acknowledges or resends a broadcast,
+    and one to a Linux laptop here went missing about one search in eight - more, and several in a row,
+    while its Wi-Fi was power-saving. Replies are collected per machine, so answering each copy is harmless.
+    """
     ts = time.time()
     query = json.dumps({"magic": DISCOVER_MAGIC, "ts": ts, "mac": _sign(passphrase, f"{DISCOVER_MAGIC}:{ts}")}).encode()
 
-    sockets: list[socket.socket] = []
+    sockets: list[tuple[socket.socket, str]] = []
     for local, broadcast in broadcast_targets():
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -265,16 +272,25 @@ def discover_on_lan(discovery_port: int, passphrase: str) -> list[dict]:
         except OSError:
             sock.close()  # an interface that won't carry it (asleep, no route) isn't worth a message
             continue
-        sockets.append(sock)
+        sockets.append((sock, broadcast))
     if not sockets:
         warn("couldn't send a discovery query on any network")
         return []
 
     found: dict[str, dict] = {}
     try:
-        deadline = time.monotonic() + DISCOVER_WAIT
+        start = time.monotonic()
+        deadline = start + DISCOVER_WAIT
+        sends = 1
         while time.monotonic() < deadline:
-            ready, _, _ = select.select(sockets, [], [], 0.2)
+            if sends < DISCOVER_SENDS and time.monotonic() >= start + sends * DISCOVER_RESEND:
+                sends += 1
+                for sock, broadcast in sockets:
+                    try:
+                        sock.sendto(query, (broadcast, discovery_port))
+                    except OSError:
+                        pass  # the first copy went out; a later one failing just means fewer chances
+            ready, _, _ = select.select([sock for sock, _ in sockets], [], [], 0.1)
             for sock in ready:
                 try:
                     data, addr = sock.recvfrom(2048)
@@ -297,7 +313,7 @@ def discover_on_lan(discovery_port: int, passphrase: str) -> list[dict]:
                 found.setdefault(token, {"name": reply.get("name") or addr[0], "ip": addr[0],
                                          "port": port, "token": token})
     finally:
-        for sock in sockets:
+        for sock, _ in sockets:
             sock.close()
     return list(found.values())
 
