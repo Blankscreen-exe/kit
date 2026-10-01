@@ -1,0 +1,19 @@
+/*
+ * Layout every style shares: page size, print behaviour, page breaks. Loaded before the style's own
+ * CSS, so a style can override anything here (a later @page rule wins too).
+ * Not a style itself - files starting with "_" are skipped when listing styles.
+ */
+@page { size: $paper; margin: 18mm 16mm; }
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { margin: 0; }
+.document { max-width: 820px; margin: 0 auto; padding: 48px 32px; }
+@media print { .document { max-width: none; padding: 0; } }
+.document > :first-child { margin-top: 0; }
+
+h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; break-inside: avoid; }
+table { border-collapse: collapse; width: 100%; break-inside: avoid; }
+img { max-width: 100%; }
+.task-list-item { list-style: none; }
+.task-list-item-checkbox { margin: 0 0.5em 0 -1.4em; vertical-align: middle; }

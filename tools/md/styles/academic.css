@@ -1,0 +1,50 @@
+/*
+ * description: Serif type and justified text, like a printed paper
+ * pygments: friendly
+ */
+@page { margin: 25mm 22mm; }
+:root {
+  --text: #111;
+  --muted: #555;
+}
+body {
+  background: #fff;
+  color: var(--text);
+  font: 11.5pt/1.55 "Cambria", "Georgia", "Times New Roman", "Liberation Serif", serif;
+  hyphens: auto;
+}
+.document { max-width: 720px; }
+
+h1, h2, h3, h4, h5, h6 { line-height: 1.25; font-weight: 700; margin: 1.5em 0 0.5em; }
+h1 { color: var(--accent-h1, inherit); font-size: 1.9em; text-align: center; font-weight: 600; margin-bottom: 1.2em; }
+h2 { color: var(--accent-h2, inherit); font-size: 1.3em; }
+h3 { color: var(--accent-h3, inherit); font-size: 1.1em; font-style: italic; font-weight: 600; }
+h4, h5, h6 { color: var(--accent-h4, inherit); font-size: 1em; font-style: italic; font-weight: 400; }
+
+p { margin: 0 0 0.8em; text-align: justify; }
+ul, ol, table, pre, blockquote, dl { margin: 0 0 1em; }
+a { color: var(--accent, inherit); text-decoration: underline; text-decoration-color: var(--accent-border, #bbb); }
+ul, ol { padding-left: 1.8em; }
+li + li { margin-top: 0.2em; }
+
+code { font-family: "Cascadia Code", Consolas, "Courier New", monospace; font-size: 0.85em; }
+pre {
+  background: var(--accent-softer, #f5f5f2);
+  border-left: 2px solid var(--accent-border, #bbb);
+  padding: 10px 14px;
+}
+pre code { font-size: 0.8em; }
+
+blockquote { margin: 0 2.5em 1em; font-style: italic; color: var(--muted); }
+blockquote > :last-child { margin-bottom: 0; }
+
+/* booktabs-style tables: rules above and below, none between cells */
+table { font-size: 0.92em; border-top: 2px solid var(--accent-strong, #222); border-bottom: 2px solid var(--accent-strong, #222); }
+th, td { padding: 5px 10px; text-align: left; vertical-align: top; }
+th { border-bottom: 1px solid var(--accent-strong, #222); font-weight: 700; }
+
+hr { border: 0; text-align: center; margin: 2em 0; }
+hr::after { content: "\2042"; color: var(--accent, #555); }
+.footnotes { font-size: 0.88em; color: var(--muted); }
+.footnotes-sep { border: 0; border-top: 1px solid var(--accent-border, #bbb); width: 30%; margin: 2em 0 1em; text-align: left; }
+.footnotes-sep::after { content: none; }

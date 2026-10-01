@@ -1,0 +1,58 @@
+/*
+ * description: Dark background, made for reading on screen (uses lots of ink if printed)
+ * pygments: monokai
+ * scheme: dark
+ */
+:root {
+  --bg: #0d1117;
+  --text: #e6edf3;
+  --muted: #9198a1;
+  --border: #30363d;
+}
+@page { background: #0d1117; }  /* paints the page margins too when printed */
+html, body { background: var(--bg); }
+body {
+  color: var(--text);
+  font: 11pt/1.6 "Segoe UI", "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.6em 0 0.6em; font-weight: 700; }
+h1 { color: var(--accent-h1, #1f6feb); font-size: 2em; padding-bottom: 0.3em; border-bottom: 2px solid var(--accent-h1, #1f6feb); }
+h2 { color: var(--accent-h2, #3fb950); font-size: 1.5em; padding-bottom: 0.25em; border-bottom: 1px solid var(--accent-border, #30363d); }
+h3 { color: var(--accent-h3, #d2a8ff); font-size: 1.25em; }
+h4 { color: var(--accent-h4, #f0883e); font-size: 1.05em; }
+h5, h6 { color: var(--accent-h5, #9198a1); font-size: 1em; }
+
+p, ul, ol, table, pre, blockquote, dl { margin: 0 0 1em; }
+a { color: var(--accent, #1f6feb); text-decoration: none; }
+a:hover { text-decoration: underline; }
+ul, ol { padding-left: 1.6em; }
+li + li { margin-top: 0.25em; }
+li > ul, li > ol { margin: 0.25em 0 0; }
+
+code {
+  font-family: "Cascadia Code", Consolas, "SFMono-Regular", Menlo, monospace;
+  font-size: 0.9em;
+  background: var(--accent-soft, #161b22);
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+}
+pre {
+  background: var(--accent-softer, #272822);
+  border: 1px solid var(--accent-border, #30363d);
+  border-left: 4px solid var(--accent, #30363d);
+  border-radius: 6px;
+  padding: 12px 14px;
+}
+pre code { background: none; padding: 0; font-size: 0.85em; color: #f8f8f2; }
+
+blockquote { margin-left: 0; padding: 0.6em 1em; color: var(--muted); background: var(--accent-softer, #161b22); border-left: 4px solid var(--accent-border, #30363d); }
+blockquote > :last-child { margin-bottom: 0; }
+
+table { font-size: 0.95em; }
+th, td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: var(--accent-soft, #161b22); color: var(--accent-h1, #1f6feb); }
+tbody tr:nth-child(even) td { background: var(--accent-softer, #11161d); }
+
+hr { border: 0; border-top: 1px solid var(--accent-border, #30363d); margin: 2em 0; }
+.footnotes { font-size: 0.9em; color: var(--muted); }

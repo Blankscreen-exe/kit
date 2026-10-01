@@ -1,0 +1,50 @@
+/*
+ * description: Plain and familiar, like a README on GitHub
+ * pygments: default
+ */
+:root {
+  --text: #1f2328;
+  --muted: #59636e;
+  --border: #d1d9e0;
+}
+body {
+  background: #fff;
+  color: var(--text);
+  font: 11pt/1.5 -apple-system, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.5em 0 0.75em; font-weight: 600; }
+h1 { color: var(--accent-h1, inherit); font-size: 2em; padding-bottom: 0.3em; border-bottom: 1px solid var(--accent-border, #d1d9e0); }
+h2 { color: var(--accent-h2, inherit); font-size: 1.5em; padding-bottom: 0.3em; border-bottom: 1px solid var(--accent-border, #d1d9e0); }
+h3 { color: var(--accent-h3, inherit); font-size: 1.25em; }
+h4 { color: var(--accent-h4, inherit); font-size: 1em; }
+h5 { color: var(--accent-h5, inherit); font-size: 0.875em; }
+h6 { color: var(--accent-h5, #59636e); font-size: 0.85em; }
+
+p, ul, ol, table, pre, blockquote, dl { margin: 0 0 1em; }
+a { color: var(--accent, #0969da); text-decoration: none; }
+a:hover { text-decoration: underline; }
+strong { font-weight: 600; }
+ul, ol { padding-left: 2em; }
+li + li { margin-top: 0.25em; }
+li > ul, li > ol { margin: 0.25em 0 0; }
+
+code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, "SFMono-Regular", Menlo, monospace;
+  font-size: 85%;
+  background: var(--accent-soft, rgba(129, 139, 152, 0.12));
+  padding: 0.2em 0.4em;
+  border-radius: 6px;
+}
+pre { background: var(--accent-softer, #f6f8fa); border-radius: 6px; padding: 16px; }
+pre code { background: none; padding: 0; font-size: 85%; }
+
+blockquote { margin-left: 0; padding: 0 1em; color: var(--muted); border-left: 0.25em solid var(--accent-border, #d1d9e0); }
+blockquote > :last-child { margin-bottom: 0; }
+
+th, td { border: 1px solid var(--border); padding: 6px 13px; text-align: left; vertical-align: top; }
+th { font-weight: 600; background: var(--accent-soft, #f6f8fa); }
+tbody tr:nth-child(even) td { background: var(--accent-softer, #f6f8fa); }
+
+hr { height: 0.25em; border: 0; background: var(--accent-border, #d1d9e0); margin: 1.5em 0; }
+.footnotes { font-size: 0.85em; color: var(--muted); }

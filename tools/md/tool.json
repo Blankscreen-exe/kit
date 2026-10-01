@@ -2,7 +2,8 @@
   "category": "docs",
   "aliases": ["md2pdf"],
   "settings": {
-    "accent": {"type": "string", "default": "#1f6feb", "help": "Colour of main headings, links and table headers (hex or a colour name)"},
+    "style": {"type": "string", "default": "default", "help": "Style offered first and used without asking (a file name in tools/md/styles, see kit md --list-styles)"},
+    "accent": {"type": "string", "default": "none", "help": "Theme colour offered first and used without asking: none (the style's own colours), blue, teal, green, purple, pink, red, orange, amber, navy, slate, or a hex value"},
     "paper": {"type": "choice", "choices": ["A4", "Letter", "Legal", "A3", "A5"], "default": "A4", "help": "Page size for PDF output"}
   }
 }
