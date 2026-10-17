@@ -25,6 +25,7 @@ import os
 # aborts the process as soon as the ssl module loads. Drop it before ssl/urllib.
 os.environ.pop("SSLKEYLOGFILE", None)
 
+import atexit  # noqa: E402
 import hashlib  # noqa: E402
 import json  # noqa: E402
 import platform  # noqa: E402
@@ -254,6 +255,9 @@ class Tunnel:
             self.process = subprocess.Popen(command, **options)
         except OSError as exc:
             raise ReachError(f"cloudflared didn't start: {exc}") from None
+        # However this program ends (Ctrl+C while the tunnel is still opening, say), cloudflared
+        # mustn't outlive it: the address would stay up, pointing at whatever uses the port next.
+        atexit.register(self.stop)
         threading.Thread(target=self._read, daemon=True).start()
 
         deadline = time.time() + timeout
