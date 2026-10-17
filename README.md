@@ -37,6 +37,7 @@ kit - personal toolbox
     pad              scratch, note  A plain scratch pad in the terminal that saves as you type, for drafting messages and parking links.
     pomodoro         pomo           A pomodoro focus timer in the terminal that you can drive with the mouse or keyboard, and that keeps a history of your sessions.
     prompt-cache     pc, prompts    Write, find and fill reusable AI prompts in seconds, without managing files.
+    subs             subscriptions  Track your subscriptions: what each costs, what they add up to a month and a year, and what renews next.
 
   SYSTEM
     clean                           Find and safely free disk space: temp files, the trash, package-manager caches and Docker leftovers.
@@ -356,6 +357,7 @@ install.sh        Linux/macOS installer / uninstaller
 | `KIT_SSH_CONFIG` | SSH config file `kit ssh` reads and edits (overrides `ssh.config`) |
 | `KIT_POMODORO_DATA` | Where `kit pomodoro` keeps its history (default `%APPDATA%\kit\pomodoro.json` / `~/.local/share/kit/pomodoro.json`) |
 | `KIT_BACKUP_DIR` | Where `kit ssh`, `kit pathfix`, `kit env` and `kit hosts` save backups before changing files |
+| `KIT_SUBS_DATA` | Where `kit subs` keeps your subscriptions (default `%APPDATA%\kit\subs.json` / `~/.local/share/kit/subs.json`) |
 | `KIT_PAD_DIR` | Where `kit pad` keeps its pads (default `%APPDATA%\kit\pad` / `~/.local/share/kit/pad`) |
 | `KIT_TOP_DATA` | Where `kit top` keeps its list of trusted programs |
 | `KIT_NOTIFY_DATA` | Where `kit notify serve` keeps its saved token |

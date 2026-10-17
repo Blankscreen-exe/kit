@@ -1,0 +1,9 @@
+{
+  "category": "productivity",
+  "aliases": ["subscriptions"],
+  "interactive": true,
+  "settings": {
+    "currency": {"type": "string", "default": "USD", "help": "Main currency: totals are shown in it, and new subscriptions use it unless you say otherwise (three letters, e.g. USD, EUR, GBP)"},
+    "due_days": {"type": "int", "default": 7, "min": 1, "max": 365, "help": "How many days ahead counts as due soon"}
+  }
+}
