@@ -1,8 +1,0 @@
-{
-  "category": "productivity",
-  "aliases": ["pc", "prompts"],
-  "interactive": true,
-  "settings": {
-    "data": {"type": "string", "default": "", "env": "PROMPT_CACHE_DATA", "help": "Folder holding the prompt database (empty: the app's own default location)"}
-  }
-}

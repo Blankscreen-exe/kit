@@ -1,8 +1,0 @@
-{
-  "category": "productivity",
-  "aliases": ["cm"],
-  "web": true,
-  "settings": {
-    "home": {"type": "string", "default": "", "env": "KIT_CONTENT_MACHINE_HOME", "help": "The Content Machine project folder (the one with .venv in it)"}
-  }
-}
