@@ -1,0 +1,21 @@
+{
+  "category": "network",
+  "settings": {
+    "mode": {"type": "choice", "choices": ["lan", "internet"], "default": "lan",
+             "help": "Who the link works for: lan = devices on this network, internet = anyone (through a Cloudflare tunnel)"},
+    "folder": {"type": "string", "default": "",
+               "help": "Where received files go (empty: kit-received in your Downloads folder)"},
+    "expire": {"type": "string", "default": "1h",
+               "help": "How long the link takes new uploads: 1h, 30m, 2h30m (uploads already going are let finish)"},
+    "max_size": {"type": "string", "default": "",
+                 "help": "Largest file accepted, e.g. 2GB or 500MB (empty: whatever fits on the disk)"},
+    "code": {"type": "bool", "default": true,
+             "help": "Ask for a one-time code before an upload; turn off only for transfers to yourself"},
+    "once": {"type": "bool", "default": false,
+             "help": "Close the link after the first set of files has arrived"},
+    "port": {"type": "int", "default": 8771, "min": 1, "max": 65535,
+             "help": "Port the link uses on the LAN (the next free one is used if it's taken)"},
+    "cloudflared": {"type": "string", "default": "", "env": "KIT_CLOUDFLARED",
+                    "help": "cloudflared program for internet links (empty: the one on PATH, else kit downloads it)"}
+  }
+}
