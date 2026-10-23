@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import hmac
 import html
 import io
@@ -19,6 +21,7 @@ import sys
 import tempfile
 import threading
 import time
+import warnings
 import webbrowser
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -35,6 +38,12 @@ from kitlib.settings import tool_settings
 from kitlib.ui import add_ui_flags, want_ui, why_no_ui
 from kitlib.webserver import KitHandler
 
+try:
+    from PIL import Image, ImageOps
+    warnings.filterwarnings("ignore", category=Image.DecompressionBombWarning)
+except ImportError:  # previews are a nicety: sending works without Pillow
+    Image = None
+
 
 TOOL_DIR = Path(os.environ.get("KIT_TOOL_DIR") or Path(__file__).resolve().parent)
 DEFAULT_PORT = 8770
@@ -42,9 +51,16 @@ PORT_ATTEMPTS = 20
 STATIC = {"/sender.js": "text/javascript; charset=utf-8"}
 PAGE_CSP = ("default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; "
             "connect-src 'self'; base-uri 'none'; form-action 'none'")
-DOWNLOAD_CSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+# The download page's only script: Esc closes an enlarged image. The CSP allows exactly this script.
+VIEWER_SCRIPT = 'addEventListener("keydown",e=>{if(e.key==="Escape"&&location.hash==="#view")location.hash=""})'
+VIEWER_HASH = "sha256-" + base64.b64encode(hashlib.sha256(VIEWER_SCRIPT.encode()).digest()).decode()
+DOWNLOAD_CSP = (f"default-src 'none'; img-src 'self'; script-src '{VIEWER_HASH}'; style-src 'unsafe-inline'; "
+                "base-uri 'none'; form-action 'none'")
 PING = "/_kit/ping"   # what kit fetches through a new tunnel to know it really works
-LINK_RE = re.compile(r"/d/([A-Za-z0-9_-]{16,64})(/file)?/?")
+LINK_RE = re.compile(r"/d/([A-Za-z0-9_-]{16,64})(/file|/thumb|/large)?/?")
+PREVIEW_SIDES = {"thumb": 960, "large": 1600}   # longest side in pixels: on the page, and enlarged
+PREVIEW_FORMATS = {"JPEG", "MPO", "PNG", "GIF", "WEBP", "BMP", "TIFF"}
+PREVIEW_PIXELS = 100_000_000   # bigger than this isn't worth decoding (a JPEG decodes at a fraction, so it's fine)
 BLOCK = 1 << 20
 MAX_BODY = 256_000     # a dialog can hand back a lot of long paths
 BROWSE_LIMIT = 2000    # entries returned for one folder
@@ -138,6 +154,8 @@ class Share:
     active: dict[int, Transfer] = field(default_factory=dict)
     dead: str = ""                  # why it stopped working ("" while live)
     logged_dead: bool = False
+    previews: dict[str, tuple[bytes, str] | None] = field(default_factory=dict)  # made once, by kind
+    preview_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     @property
     def source(self) -> str:
@@ -155,6 +173,13 @@ class Share:
             "active": [transfer.state(self.size) for transfer in list(self.active.values())],
         }
 
+    def preview(self, kind: str) -> tuple[bytes, str] | None:
+        """The file as a picture for the download page (bytes, content type), or None if it isn't one."""
+        with self.preview_lock:
+            if kind not in self.previews:
+                self.previews[kind] = make_preview(self.path, PREVIEW_SIDES[kind])
+            return self.previews[kind]
+
     def check(self) -> str:
         """"" while the share still works, else why it doesn't."""
         if self.dead:
@@ -164,6 +189,32 @@ class Share:
         elif self.max_downloads is not None and self.downloads >= self.max_downloads:
             self.dead = "the link reached its download limit"
         return self.dead
+
+
+def make_preview(path: Path, side: int) -> tuple[bytes, str] | None:
+    """A copy of an image that fits in side x side pixels, the right way up, or None if kit can't show it.
+
+    Re-encoding leaves the original's metadata behind, so a photo's location doesn't go out with its preview.
+    """
+    if Image is None:
+        return None
+    try:
+        with Image.open(path) as image:
+            if image.format not in PREVIEW_FORMATS:
+                return None
+            image.draft("RGB", (side, side))   # a JPEG decodes straight at a fraction of its size
+            if image.width * image.height > PREVIEW_PIXELS:
+                return None
+            image = ImageOps.exif_transpose(image)
+            image.thumbnail((side, side), Image.Resampling.LANCZOS)
+            out = io.BytesIO()
+            if image.mode in ("RGBA", "LA", "PA") or "transparency" in image.info:
+                image.convert("RGBA").save(out, "PNG", optimize=True)
+                return out.getvalue(), "image/png"
+            image.convert("RGB").save(out, "JPEG", quality=85)
+            return out.getvalue(), "image/jpeg"
+    except Exception:  # anything Pillow can't read, or reads wrongly, just gets no preview
+        return None
 
 
 DURATION_RE = re.compile(r"(?:(?P<h>\d+(?:\.\d+)?)\s*h)?\s*(?:(?P<m>\d+(?:\.\d+)?)\s*m)?\s*(?:(?P<s>\d+(?:\.\d+)?)\s*s)?$", re.I)
@@ -638,7 +689,9 @@ class ShareHandler(KitHandler, BaseHTTPRequestHandler):
 
     def send_text(self, status: int, text: str, content_type: str = "text/plain; charset=utf-8",
                   extra: dict | None = None) -> None:
-        body = text.encode("utf-8")
+        self.send_body(status, text.encode("utf-8"), content_type, extra)
+
+    def send_body(self, status: int, body: bytes, content_type: str, extra: dict | None = None) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -653,6 +706,7 @@ class ShareHandler(KitHandler, BaseHTTPRequestHandler):
 
     def send_page(self, status: int, **values: str) -> None:
         page = theme.inject((TOOL_DIR / "download.html").read_text(encoding="utf-8"))
+        values.setdefault("preview", "")
         values.setdefault("button", "")
         values.setdefault("facts", "")
         for key, value in values.items():
@@ -687,6 +741,8 @@ class ShareHandler(KitHandler, BaseHTTPRequestHandler):
                                reason[0].upper() + reason[1:] + ". Ask the sender for a new one.")
         if wants_page:
             return self.download_page(share)
+        if match[2] in ("/thumb", "/large"):
+            return self.send_preview(share, match[2][1:])
         return self.send_file(share)
 
     def download_page(self, share: Share) -> None:
@@ -695,10 +751,26 @@ class ShareHandler(KitHandler, BaseHTTPRequestHandler):
             left = share.max_downloads - share.downloads
             facts.append("one download only" if share.max_downloads == 1
                          else f"{left} download{'s' if left != 1 else ''} left")
-        href = f"/d/{share.token}/file"
-        self.send_page(HTTPStatus.OK, title=html.escape(share.name), detail=html.escape(human_bytes(share.size)),
-                       button=f'<a class="button" href="{href}" download>Download</a>',
+        base = f"/d/{share.token}"
+        name = html.escape(share.name)
+        preview = ""
+        if share.preview("thumb"):
+            # Clicking the picture opens it big (#view); clicking that, Esc or Back closes it.
+            preview = (f'<a class="preview" href="#view" title="Enlarge"><img src="{base}/thumb" alt="{name}"></a>'
+                       f'<a class="viewer" id="view" href="#" title="Close">'
+                       f'<img src="{base}/large" alt="{name}" loading="lazy"></a>'
+                       f"<script>{VIEWER_SCRIPT}</script>")
+        self.send_page(HTTPStatus.OK, title=name, detail=html.escape(human_bytes(share.size)), preview=preview,
+                       button=f'<a class="button" href="{base}/file" download>Download</a>',
                        facts=html.escape(" · ".join(facts)))
+
+    def send_preview(self, share: Share, kind: str) -> None:
+        """A picture of the file for its page. Not a download: it doesn't count, and the original stays put."""
+        preview = share.preview(kind)
+        if preview is None:
+            return self.send_text(HTTPStatus.NOT_FOUND, "There's no preview of this file.\n")
+        body, content_type = preview
+        self.send_body(HTTPStatus.OK, body, content_type)
 
     def send_file(self, share: Share) -> None:
         app = self.server.app

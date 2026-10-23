@@ -16,6 +16,12 @@ kit serves the files itself. Whoever opens a link gets a small page with a **Dow
 terminal the same link works with `curl -OJ LINK` or `wget --content-disposition LINK`. Downloads can
 be paused and resumed, and any size works.
 
+For a picture (JPEG, PNG, GIF, WebP, BMP or TIFF) the page also shows a preview, and clicking it shows
+the picture as big as the screen allows (click again, Esc or Back to close it). Both are resized copies
+(at most 960 and 1600 pixels on the longest side), turned the right way up, with the original's metadata
+left out - so a photo's location doesn't go with it. Looking at them isn't a download: it doesn't count
+towards `--once` or `--max`, and the full-quality original only comes through **Download**.
+
 **kit has to keep running** while people download. Stop sharing (in the window) or Ctrl+C (in the
 terminal) ends it.
 
