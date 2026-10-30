@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rmbg</title>
+<!--kit-theme-->
+<style>
+header { border-bottom: 3px solid var(--edge); }
+.topbar { padding: 10px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.brand { margin: 0; }
+.name { color: var(--muted); font: 700 11px var(--mono); letter-spacing: .06em; }  /* a file name: real case */
+@media (max-width: 1450px) { .name { display: none; } }
+.group { display: flex; align-items: center; gap: 8px; }
+.label { color: var(--muted); font: 700 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+#size { width: 110px; padding: 0; border: 0; accent-color: var(--accent); }
+.switch button[data-brush="remove"][aria-pressed="true"] { background: var(--bad); }
+.switch button[data-brush="keep"][aria-pressed="true"] { background: var(--good); }
+main { padding: 16px; display: grid; justify-items: center; }
+.stage {
+  --room: calc(100vh - 170px);
+  position: relative; width: min(100%, calc(var(--room) * var(--ratio))); aspect-ratio: var(--ratio);
+  border: 3px solid var(--edge); box-shadow: 5px 5px 0 var(--shadow); overflow: hidden; touch-action: none; cursor: none;
+  background: repeating-conic-gradient(#3a3a3a 0 25%, #555 0 50%) 0 0 / 24px 24px;
+}
+.stage img, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; -webkit-user-drag: none; pointer-events: none; }
+#ghost { opacity: .28; }
+#strokes { opacity: .55; }
+.stage.hidden-removed #ghost { display: none; }
+.stage.show-original #ghost { opacity: 1; }
+.stage.show-original #result { display: none; }
+.stage.no-strokes #strokes { display: none; }
+#cursor { position: absolute; border: 2px solid #fff; outline: 1px solid #000; transform: translate(-50%, -50%); pointer-events: none; display: none; border-radius: 50% !important; }
+#status { min-height: 20px; margin-top: 12px; color: var(--muted); font-size: 12px; text-align: center; overflow-wrap: anywhere; }
+#status.bad { color: var(--bad); }
+#status.good { color: var(--good); }
+kbd { font: 700 11px var(--mono); background: var(--raised); border: 1px solid var(--edge); border-bottom-width: 2px; padding: 0 4px; }
+.finished { max-width: 460px; margin: 16vh auto; padding: 22px 24px; }
+.finished p { color: var(--muted); margin-bottom: 0; }
+</style>
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <h1 class="brand"><span class="mark">■</span>kit rmbg</h1>
+    <span class="name" id="name"></span>
+    <div class="spacer"></div>
+    <div class="group">
+      <span class="label">Paint</span>
+      <div class="switch">
+        <button data-brush="remove" title="Mark what should be removed (X swaps)">Remove</button>
+        <button data-brush="keep" title="Mark what should stay (X swaps)">Keep</button>
+      </div>
+    </div>
+    <label class="group"><span class="label">Size</span><input type="range" id="size" min="4" max="240" title="Brush size ([ and ])"></label>
+    <button id="undo" title="Undo the last stroke (Ctrl+Z)">Undo</button>
+    <button id="clear" title="Remove every stroke and go back to the AI's result">Clear</button>
+    <div class="group">
+      <span class="label">View</span>
+      <div class="switch">
+        <button data-view="faded" title="Show removed areas faded, so you can see what to bring back">Faded</button>
+        <button data-view="hidden" title="Show only what will be saved">Result</button>
+        <button data-view="original" title="Show the original image">Original</button>
+      </div>
+    </div>
+    <label class="opt"><input type="checkbox" id="show-strokes" checked>Strokes</label>
+    <button class="primary" id="save">Save</button>
+    <button id="done">Done</button>
+  </div>
+</header>
+
+<main>
+  <div class="stage" id="stage">
+    <img id="ghost" alt="">
+    <img id="result" alt="The image with its background removed">
+    <canvas id="strokes"></canvas>
+    <div id="cursor"></div>
+  </div>
+  <p id="status" role="status" aria-live="polite"></p>
+</main>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const stage = $("stage"), canvas = $("strokes"), cursor = $("cursor");
+const context = canvas.getContext("2d");
+const COLORS = { remove: "#ff0000", keep: "#00ff00" };
+
+const state = { brush: "remove", size: 32, strokes: [], current: null, dirty: false, sending: false, saved: false };
+
+function status(message, kind = "") {
+  $("status").textContent = message;
+  $("status").className = kind;
+}
+
+async function failure(response) {
+  try { return (await response.json()).error || `HTTP ${response.status}`; } catch (_) { return `HTTP ${response.status}`; }
+}
+
+function setBlob(image, blob) {
+  if (image.src) URL.revokeObjectURL(image.src);
+  image.src = URL.createObjectURL(blob);
+}
+
+// ---- strokes -----------------------------------------------------------------
+
+function drawStroke(stroke) {
+  context.strokeStyle = context.fillStyle = COLORS[stroke.brush];
+  context.lineWidth = stroke.size;
+  context.lineCap = context.lineJoin = "round";
+  context.beginPath();
+  const [first, ...rest] = stroke.points;
+  if (!rest.length) {
+    context.arc(first.x, first.y, stroke.size / 2, 0, Math.PI * 2);
+    context.fill();
+    return;
+  }
+  context.moveTo(first.x, first.y);
+  for (const point of rest) context.lineTo(point.x, point.y);
+  context.stroke();
+}
+
+function redraw() {
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  state.strokes.forEach(drawStroke);
+  if (state.current) drawStroke(state.current);
+  $("undo").disabled = $("clear").disabled = !state.strokes.length;
+}
+
+function position(event) {
+  const box = canvas.getBoundingClientRect();
+  return { x: (event.clientX - box.left) * canvas.width / box.width, y: (event.clientY - box.top) * canvas.height / box.height };
+}
+
+function moveCursor(event) {
+  const box = canvas.getBoundingClientRect();
+  const width = state.size * box.width / canvas.width;
+  cursor.style.display = "block";
+  cursor.style.width = cursor.style.height = `${width}px`;
+  cursor.style.left = `${event.clientX - box.left}px`;
+  cursor.style.top = `${event.clientY - box.top}px`;
+  cursor.style.borderColor = COLORS[state.brush];
+}
+
+stage.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return;
+  stage.setPointerCapture(event.pointerId);
+  state.current = { brush: state.brush, size: state.size, points: [position(event)] };
+  redraw();
+});
+
+stage.addEventListener("pointermove", (event) => {
+  moveCursor(event);
+  if (!state.current) return;
+  for (const part of event.getCoalescedEvents?.() ?? [event]) state.current.points.push(position(part));
+  redraw();
+});
+
+function endStroke() {
+  if (!state.current) return;
+  state.strokes.push(state.current);
+  state.current = null;
+  changed();
+}
+
+stage.addEventListener("pointerup", endStroke);
+stage.addEventListener("pointercancel", endStroke);
+stage.addEventListener("pointerleave", () => { cursor.style.display = "none"; });
+
+function changed() {
+  redraw();
+  state.dirty = true;
+  state.saved = false;
+  send();
+}
+
+// One request at a time: strokes made during a slow one are sent together when it finishes.
+async function send() {
+  if (state.sending) return;
+  state.sending = true;
+  updateButtons();
+  while (state.dirty) {
+    state.dirty = false;
+    status("Working it out...");
+    try {
+      const body = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      const response = await fetch("/api/strokes", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body });
+      if (!response.ok) throw new Error(await failure(response));
+      setBlob($("result"), await response.blob());
+      status("Paint more to adjust it, or Save.");
+    } catch (error) {
+      status(`Couldn't update the preview: ${error.message}`, "bad");
+    }
+  }
+  state.sending = false;
+  updateButtons();
+}
+
+function updateButtons() {
+  $("save").disabled = state.sending;
+}
+
+// ---- controls ----------------------------------------------------------------
+
+function setBrush(brush) {
+  state.brush = brush;
+  document.querySelectorAll("[data-brush]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.brush === brush));
+  cursor.style.borderColor = COLORS[brush];
+}
+
+function setView(view) {
+  stage.classList.toggle("hidden-removed", view === "hidden");
+  stage.classList.toggle("show-original", view === "original");
+  document.querySelectorAll("[data-view]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.view === view));
+}
+
+function setSize(size) {
+  state.size = Math.max(+$("size").min, Math.min(+$("size").max, Math.round(size)));
+  $("size").value = state.size;
+}
+
+function undo() {
+  if (!state.strokes.length) return;
+  state.strokes.pop();
+  changed();
+}
+
+document.querySelectorAll("[data-brush]").forEach((b) => b.addEventListener("click", () => setBrush(b.dataset.brush)));
+document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
+$("size").addEventListener("input", (event) => setSize(event.target.value));
+$("undo").addEventListener("click", undo);
+$("clear").addEventListener("click", () => { state.strokes = []; changed(); });
+$("show-strokes").addEventListener("change", (event) => stage.classList.toggle("no-strokes", !event.target.checked));
+
+document.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); undo(); }
+  else if (event.key.toLowerCase() === "x") setBrush(state.brush === "remove" ? "keep" : "remove");
+  else if (event.key === "[") setSize(state.size * 0.8);
+  else if (event.key === "]") setSize(state.size * 1.25);
+});
+
+$("save").addEventListener("click", async () => {
+  $("save").disabled = true;
+  try {
+    const response = await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    if (!response.ok) throw new Error(await failure(response));
+    const saved = await response.json();
+    state.saved = true;
+    status(`Saved ${saved.lastOutput.path}`, "good");
+  } catch (error) {
+    status(`Couldn't save: ${error.message}`, "bad");
+  }
+  updateButtons();
+});
+
+$("done").addEventListener("click", async () => {
+  if (!state.saved && !confirm("Stop without saving this version?")) return;
+  await fetch("/api/done", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
+  document.body.innerHTML = '<div class="slab finished"><h1><span class="mark">■</span>kit rmbg</h1><p>Stopped. You can close this tab.</p></div>';
+});
+
+// ---- start -------------------------------------------------------------------
+
+(async function start() {
+  try {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(await failure(response));
+    const info = await response.json();
+    canvas.width = info.workWidth;
+    canvas.height = info.workHeight;
+    stage.style.setProperty("--ratio", `${info.workWidth} / ${info.workHeight}`);
+    $("name").textContent = `${info.name} · ${info.width}x${info.height}`;
+    setSize(Math.max(info.workWidth, info.workHeight) / 30);
+    setBrush("remove");
+    setView("faded");
+    redraw();
+    updateButtons();
+    $("ghost").src = "/api/original";
+    $("result").src = "/api/result";
+    status("Paint over what's wrong: Remove for leftover background, Keep for parts of the subject that went missing.");
+  } catch (error) {
+    status(`Couldn't load the image: ${error.message}`, "bad");
+  }
+})();
+</script>
+</body>
+</html>

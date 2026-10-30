@@ -20,6 +20,7 @@ kit - personal toolbox
 
   MEDIA
     media            ff             Convert, trim, compress and resize videos, make GIFs and pull out audio, with short ffmpeg commands.
+    rmbg                            Remove the background from an image with a local AI model, and fix mistakes by painting over them on a local page.
 
   NETWORK
     hosts                           View and edit the hosts file safely: list, add, block, disable and remove entries, with a backup before every change.
